@@ -2,6 +2,18 @@ import React from 'react';
 import { CheckCircle, XCircle } from 'lucide-react';
 
 const SkillMatch = ({ matchedSkills = [], missingSkills = [] }) => {
+  const safeMatched = Array.isArray(matchedSkills)
+    ? matchedSkills
+    : typeof matchedSkills === 'string'
+      ? matchedSkills.split(',').map(s => s.trim()).filter(Boolean)
+      : [];
+
+  const safeMissing = Array.isArray(missingSkills)
+    ? missingSkills
+    : typeof missingSkills === 'string'
+      ? missingSkills.split(',').map(s => s.trim()).filter(Boolean)
+      : [];
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       {/* Matched Skills */}
@@ -9,12 +21,12 @@ const SkillMatch = ({ matchedSkills = [], missingSkills = [] }) => {
         <div className="flex items-center gap-2 mb-3">
           <CheckCircle className="w-4 h-4 text-emerald-600" />
           <h5 className="text-xs font-bold uppercase tracking-wider text-emerald-900">
-            Matched Skills ({matchedSkills.length})
+            Matched Skills ({safeMatched.length})
           </h5>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {matchedSkills.length > 0 ? (
-            matchedSkills.map((skill, idx) => (
+          {safeMatched.length > 0 ? (
+            safeMatched.map((skill, idx) => (
               <span
                 key={idx}
                 className="px-2.5 py-1 rounded-md text-xs font-medium bg-emerald-100/80 text-emerald-800 border border-emerald-200"
@@ -33,12 +45,12 @@ const SkillMatch = ({ matchedSkills = [], missingSkills = [] }) => {
         <div className="flex items-center gap-2 mb-3">
           <XCircle className="w-4 h-4 text-rose-500" />
           <h5 className="text-xs font-bold uppercase tracking-wider text-rose-900">
-            Missing / Development Gaps ({missingSkills.length})
+            Missing / Development Gaps ({safeMissing.length})
           </h5>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {missingSkills.length > 0 ? (
-            missingSkills.map((skill, idx) => (
+          {safeMissing.length > 0 ? (
+            safeMissing.map((skill, idx) => (
               <span
                 key={idx}
                 className="px-2.5 py-1 rounded-md text-xs font-medium bg-rose-100/80 text-rose-800 border border-rose-200"

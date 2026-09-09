@@ -62,6 +62,7 @@ const CandidateHiringWorkflow = ({
   ]);
   const [newSlotInput, setNewSlotInput] = useState('');
   const [instructions, setInstructions] = useState('Please ensure a quiet environment with a working webcam & microphone.');
+  const [showBreakdown, setShowBreakdown] = useState(false);
 
   // Sync state whenever event fires or candidateId changes
   useEffect(() => {
