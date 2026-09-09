@@ -1,0 +1,45 @@
+@import './variables.css';
+@import './responsive.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: var(--color-bg);
+    color: #1E293B;
+    font-family: var(--font-family);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Custom scrollbar for modern feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+/* Custom CTA gradient button utility */
+.btn-primary-gradient {
+  background: linear-gradient(135deg, #0A2540 0%, #00A3A6 100%);
+  transition: all 0.2s ease-in-out;
+}
+.btn-primary-gradient:hover {
+  opacity: 0.95;
+  box-shadow: 0 8px 20px -4px rgba(0, 163, 166, 0.4);
+  transform: translateY(-1px);
+}
+.btn-primary-gradient:active {
+  transform: translateY(0);
+}

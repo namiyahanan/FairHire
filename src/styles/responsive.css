@@ -1,0 +1,12 @@
+/* Responsive utility adjustments */
+@media (max-width: 768px) {
+  .mobile-stack {
+    flex-direction: column !important;
+  }
+  .mobile-full {
+    width: 100% !important;
+  }
+  .mobile-hide {
+    display: none !important;
+  }
+}
