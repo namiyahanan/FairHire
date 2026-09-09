@@ -158,10 +158,10 @@ const CandidateHiringWorkflow = ({
       year: 'numeric'
     });
 
-    const formattedSlots = timingSlots.map((text, idx) => ({
-      id: `slot-${idx + 1}`,
-      text
-    }));
+    const isSlotRequired = inviteRoundIndex >= 2;
+    const formattedSlots = isSlotRequired
+      ? timingSlots.map((text, idx) => ({ id: `slot-${idx + 1}`, text }))
+      : [];
 
     setTimeout(() => {
       const updated = approveRoundByHr(candidateId, inviteRoundIndex, {
@@ -174,7 +174,11 @@ const CandidateHiringWorkflow = ({
       setActionLoading(false);
       setShowInviteModal(false);
       const roundName = updated.rounds[inviteRoundIndex]?.name || `Round ${inviteRoundIndex + 1}`;
-      showNotification(`✓ Round invitation sent to candidate with ${formattedSlots.length} timing slots & deadline of ${deadlineDate}!`);
+      if (isSlotRequired) {
+        showNotification(`✓ Round 3 interview invitation sent to candidate with ${formattedSlots.length} timing slots & deadline of ${deadlineDate}!`);
+      } else {
+        showNotification(`✓ Round ${inviteRoundIndex + 1} assessment unlocked for candidate with ${deadlineDays}-day deadline (${deadlineDate})! Candidate can attend anytime.`);
+      }
       if (onStateChange) onStateChange(updated);
     }, 400);
   };
@@ -702,19 +706,22 @@ const CandidateHiringWorkflow = ({
 
                       <div className="p-3.5 rounded-xl bg-navy-950/70 border border-navy-700">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                          📅 Timing Slots Offered by HR ({activeRound.invitation?.timingSlots?.length || 3})
+                          {activeRound.invitation?.timingSlots?.length > 0 ? `📅 Timing Slots Offered by HR (${activeRound.invitation.timingSlots.length})` : '⚡ Assessment Format'}
                         </span>
-                        <div className="flex flex-wrap gap-1.5 mt-1">
-                          {(activeRound.invitation?.timingSlots || [
-                            { text: 'Tomorrow • 10:00 AM - 11:00 AM EST' },
-                            { text: 'Tomorrow • 02:00 PM - 03:00 PM EST' },
-                            { text: 'Day After Tomorrow • 11:30 AM - 12:30 PM EST' }
-                          ]).map((s, idx) => (
-                            <span key={idx} className="px-2 py-0.5 rounded-md bg-navy-800 text-teal-300 text-[11px] font-mono border border-teal-500/30">
-                              {s.text || s}
-                            </span>
-                          ))}
-                        </div>
+                        {activeRound.invitation?.timingSlots?.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5 mt-1">
+                            {activeRound.invitation.timingSlots.map((s, idx) => (
+                              <span key={idx} className="px-2 py-0.5 rounded-md bg-navy-800 text-teal-300 text-[11px] font-mono border border-teal-500/30">
+                                {s.text || s}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-teal-300 font-semibold text-xs flex items-center gap-1.5 mt-0.5">
+                            <Sparkles className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+                            <span>Asynchronous 10-Question AI Aptitude Test (Candidate can attend anytime within deadline)</span>
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -744,11 +751,68 @@ const CandidateHiringWorkflow = ({
 
                         <div className="flex items-baseline gap-1.5 self-start sm:self-auto">
                           <span className="text-2xl font-black text-emerald-300 font-sans">
-                            {activeRound.result.score}%
+                            {activeRound.result.rawScore !== undefined ? `${activeRound.result.rawScore} / ${activeRound.result.totalQuestions || 10}` : `${activeRound.result.score}%`}
                           </span>
-                          <span className="text-xs text-slate-400">Score</span>
+                          <span className="text-xs text-slate-400">({activeRound.result.score}%)</span>
                         </div>
                       </div>
+
+                      {/* Confidential HR Notice */}
+                      <div className="mt-3 p-3 rounded-xl bg-teal-950/60 border border-teal-500/30 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 text-teal-300">
+                          <Lock className="w-4 h-4 text-teal-400 shrink-0" />
+                          <span>
+                            <strong>Confidential HR Evaluation Metric:</strong> Score is strictly hidden from the candidate portal under EEOC Blind Screening. Only HR reviewers have access.
+                          </span>
+                        </div>
+                        {activeRound.result.questionsBreakdown && activeRound.result.questionsBreakdown.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setShowBreakdown(prev => !prev)}
+                            className="px-3 py-1.5 rounded-lg bg-teal-500/20 hover:bg-teal-500/30 border border-teal-400/40 text-teal-300 text-xs font-bold transition-all shrink-0 cursor-pointer"
+                          >
+                            {showBreakdown ? 'Hide Questions Breakdown' : 'View 10 Questions Breakdown'}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Detailed Question Breakdown Table (HR Exclusive) */}
+                      {showBreakdown && activeRound.result.questionsBreakdown && (
+                        <div className="mt-3 p-4 rounded-xl bg-navy-900 border border-navy-800 space-y-3 max-h-72 overflow-y-auto">
+                          <h6 className="font-bold text-white text-xs flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-teal-400" />
+                            Question-by-Question Evaluation Breakdown (HR Review Exclusive)
+                          </h6>
+                          <div className="space-y-2">
+                            {activeRound.result.questionsBreakdown.map((q, idx) => (
+                              <div
+                                key={idx}
+                                className={`p-3 rounded-xl border text-xs ${
+                                  q.isCorrect
+                                    ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-200'
+                                    : 'bg-rose-950/40 border-rose-500/30 text-rose-200'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2 mb-1">
+                                  <span className="font-bold text-white">Q{idx + 1}: {q.topic}</span>
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                    q.isCorrect ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+                                  }`}>
+                                    {q.isCorrect ? '✓ Correct' : '✗ Incorrect / Timed Out'}
+                                  </span>
+                                </div>
+                                <p className="text-slate-300 mb-1">{q.question}</p>
+                                <div className="text-[11px] text-slate-400 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                                  <span>Candidate: <strong className="text-white">{q.candidateAnswer}</strong></span>
+                                  {!q.isCorrect && (
+                                    <span>Correct: <strong className="text-emerald-400">{q.correctAnswer}</strong></span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
                       <div className="mt-3 p-3 rounded-xl bg-navy-900/80 border border-navy-800 text-slate-300 leading-relaxed">
                         <p className="font-bold text-teal-300 mb-1 flex items-center gap-1.5 text-xs">
@@ -1022,70 +1086,82 @@ const CandidateHiringWorkflow = ({
                 </div>
               </div>
 
-              {/* Question 2: Timing Slots Given by HR */}
-              <div>
-                <label className="block font-black text-navy-900 text-xs sm:text-sm mb-1.5 flex items-center gap-1.5">
-                  <Calendar className="w-4 h-4 text-teal-600" />
-                  <span>Interview / Assessment Timing Slots (Given by HR)</span>
-                </label>
-                <p className="text-[11px] text-slate-500 mb-2.5">
-                  Provide available timing slots. The candidate will see these slots in their interface and choose their preferred slot.
-                </p>
+              {/* Question 2: Timing Slots (Only required for Round 3 Live Interview; Round 1 & 2 are asynchronous aptitude assessments) */}
+              {inviteRoundIndex >= 2 ? (
+                <div>
+                  <label className="block font-black text-navy-900 text-xs sm:text-sm mb-1.5 flex items-center gap-1.5">
+                    <Calendar className="w-4 h-4 text-teal-600" />
+                    <span>Round 3 Live Interview Timing Slots (Given by HR)</span>
+                  </label>
+                  <p className="text-[11px] text-slate-500 mb-2.5">
+                    Provide available live interview slots. The candidate will see these slots in their interface and choose their preferred slot.
+                  </p>
 
-                {/* Slots List */}
-                <div className="space-y-2 mb-3 max-h-48 overflow-y-auto pr-1">
-                  {timingSlots.map((slotText, idx) => (
-                    <div
-                      key={idx}
-                      className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2 group hover:border-teal-300 transition-all"
-                    >
-                      <div className="flex items-center gap-2 text-xs font-mono text-navy-900">
-                        <span className="w-5 h-5 rounded-lg bg-teal-100 text-teal-800 text-[10px] font-black flex items-center justify-center shrink-0">
-                          {idx + 1}
-                        </span>
-                        <span>{slotText}</span>
+                  {/* Slots List */}
+                  <div className="space-y-2 mb-3 max-h-48 overflow-y-auto pr-1">
+                    {timingSlots.map((slotText, idx) => (
+                      <div
+                        key={idx}
+                        className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2 group hover:border-teal-300 transition-all"
+                      >
+                        <div className="flex items-center gap-2 text-xs font-mono text-navy-900">
+                          <span className="w-5 h-5 rounded-lg bg-teal-100 text-teal-800 text-[10px] font-black flex items-center justify-center shrink-0">
+                            {idx + 1}
+                          </span>
+                          <span>{slotText}</span>
+                        </div>
+
+                        {timingSlots.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveTimingSlot(idx)}
+                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                            title="Remove slot"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
+                    ))}
+                  </div>
 
-                      {timingSlots.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveTimingSlot(idx)}
-                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                          title="Remove slot"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                  {/* Add New Slot Input */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={newSlotInput}
+                      onChange={(e) => setNewSlotInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddTimingSlot();
+                        }
+                      }}
+                      placeholder="e.g. Friday • 03:00 PM - 04:00 PM EST"
+                      className="flex-1 px-3 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddTimingSlot}
+                      disabled={!newSlotInput.trim()}
+                      className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-bold transition-all flex items-center gap-1 cursor-pointer shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Slot</span>
+                    </button>
+                  </div>
                 </div>
-
-                {/* Add New Slot Input */}
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={newSlotInput}
-                    onChange={(e) => setNewSlotInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddTimingSlot();
-                      }
-                    }}
-                    placeholder="e.g. Friday • 03:00 PM - 04:00 PM EST"
-                    className="flex-1 px-3 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddTimingSlot}
-                    disabled={!newSlotInput.trim()}
-                    className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-bold transition-all flex items-center gap-1 cursor-pointer shrink-0"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Add Slot</span>
-                  </button>
+              ) : (
+                <div className="p-4 rounded-2xl bg-teal-50/80 border border-teal-200 space-y-1.5">
+                  <div className="flex items-center gap-2 text-teal-900 font-extrabold text-xs sm:text-sm">
+                    <Sparkles className="w-4 h-4 text-teal-600 shrink-0" />
+                    <span>Asynchronous AI Aptitude Assessment (Round {inviteRoundIndex + 1})</span>
+                  </div>
+                  <p className="text-xs text-teal-700 leading-relaxed">
+                    Specific timing slots are <strong>not needed</strong> for Round {inviteRoundIndex + 1}. Once you send this invitation, the candidate can start and complete their 10-question AI Aptitude Assessment <strong>anytime before the {deadlineDays}-day deadline</strong>.
+                  </p>
                 </div>
-              </div>
+              )}
 
               {/* Instructions / Notes (Optional) */}
               <div>

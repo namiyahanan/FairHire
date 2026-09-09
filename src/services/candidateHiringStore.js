@@ -178,15 +178,17 @@ export const approveRoundByHr = (candidateId, roundIndex = 0, invitationDetails 
     year: 'numeric'
   });
 
+  const isInterviewSlotRound = roundIndex >= 2;
   const defaultTimingSlots = [
     { id: 'slot-1', text: 'Tomorrow • 10:00 AM - 11:00 AM EST' },
     { id: 'slot-2', text: 'Tomorrow • 02:00 PM - 03:00 PM EST' },
     { id: 'slot-3', text: 'Day After Tomorrow • 11:30 AM - 12:30 PM EST' }
   ];
 
-  const timingSlots = Array.isArray(invitationDetails.timingSlots) && invitationDetails.timingSlots.length > 0
-    ? invitationDetails.timingSlots
-    : defaultTimingSlots;
+  // Rounds 1 and 2 do NOT require scheduling time slots (asynchronous within deadline). Only Round 3 requires time slots.
+  const timingSlots = isInterviewSlotRound
+    ? (Array.isArray(invitationDetails.timingSlots) && invitationDetails.timingSlots.length > 0 ? invitationDetails.timingSlots : defaultTimingSlots)
+    : [];
 
   if (rounds[roundIndex]) {
     rounds[roundIndex] = {
@@ -198,10 +200,10 @@ export const approveRoundByHr = (candidateId, roundIndex = 0, invitationDetails 
         deadlineDays,
         deadlineDate,
         timingSlots,
-        instructions: invitationDetails.instructions || 'Please ensure a stable environment and attend within your selected slot.',
+        instructions: invitationDetails.instructions || 'Please complete the assessment within the specified deadline.',
         sentAt: new Date().toISOString()
       },
-      selectedSlot: null
+      selectedSlot: isInterviewSlotRound ? null : 'Asynchronous (Anytime within deadline)'
     };
   }
 
@@ -219,7 +221,9 @@ export const approveRoundByHr = (candidateId, roundIndex = 0, invitationDetails 
         stage: 'Review',
         title: `Invitation Sent to Candidate for ${roundName}`,
         timestamp: new Date().toISOString(),
-        note: `HR specified ${deadlineDays}-day deadline (${deadlineDate}) with ${timingSlots.length} available timing slots.`
+        note: isInterviewSlotRound
+          ? `HR specified ${deadlineDays}-day deadline (${deadlineDate}) with ${timingSlots.length} available interview slots.`
+          : `HR specified ${deadlineDays}-day deadline (${deadlineDate}). Candidate can complete the assessment anytime within this deadline.`
       }
     ]
   };
@@ -230,16 +234,35 @@ export const approveRoundByHr = (candidateId, roundIndex = 0, invitationDetails 
 };
 
 // 4. Candidate Attends Round Assessment (Result automatically generated and sent to HR)
-export const candidateAttendRound = (candidateId, roundIndex = 0, selectedSlot = null) => {
+export const candidateAttendRound = (candidateId, roundIndex = 0, selectedSlot = null, assessmentSubmission = null) => {
   const store = getHiringStore();
   const current = getCandidateHiringState(candidateId);
   const rounds = [...(current.rounds || [])];
 
   if (rounds[roundIndex]) {
     const roundNumber = rounds[roundIndex].round || roundIndex + 1;
-    const result = generateRoundResult(rounds[roundIndex].name, roundNumber);
+    let result;
 
-    const chosenSlot = selectedSlot || rounds[roundIndex].selectedSlot || rounds[roundIndex].invitation?.timingSlots?.[0]?.text || 'Confirmed Slot';
+    if (assessmentSubmission) {
+      result = {
+        score: assessmentSubmission.score,
+        rawScore: assessmentSubmission.rawScore,
+        totalQuestions: assessmentSubmission.totalQuestions || 10,
+        status: assessmentSubmission.score >= 60 ? 'Passed' : 'Needs Review',
+        passedAt: new Date().toISOString(),
+        feedback: assessmentSubmission.feedback || `Candidate scored ${assessmentSubmission.rawScore}/10 (${assessmentSubmission.score}%) on AI Aptitude Assessment.`,
+        evaluatedBy: 'FairHire AI Aptitude Engine',
+        questionsBreakdown: assessmentSubmission.questionsBreakdown || [],
+        timeSpentSeconds: assessmentSubmission.timeSpentSeconds || 0
+      };
+    } else {
+      result = generateRoundResult(rounds[roundIndex].name, roundNumber);
+    }
+
+    const isInterviewSlotRound = roundIndex >= 2;
+    const chosenSlot = isInterviewSlotRound
+      ? (selectedSlot || rounds[roundIndex].selectedSlot || rounds[roundIndex].invitation?.timingSlots?.[0]?.text || 'Confirmed Slot')
+      : 'Asynchronous (Anytime within deadline)';
 
     rounds[roundIndex] = {
       ...rounds[roundIndex],
@@ -265,7 +288,7 @@ export const candidateAttendRound = (candidateId, roundIndex = 0, selectedSlot =
         stage: 'Review',
         title: `Candidate Attended ${roundName}`,
         timestamp: new Date().toISOString(),
-        note: `Assessment completed. Score ${rounds[roundIndex]?.result?.score}% with evaluation result sent to HR.`
+        note: `Assessment completed. Evaluation results submitted directly to HR dashboard for review.`
       }
     ]
   };
