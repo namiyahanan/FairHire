@@ -3,7 +3,7 @@ import { MOCK_JOBS } from '../mock/jobMock';
 import { PREPARATION_GUIDE_ROLES, GENERAL_PREPARATION_CHECKLIST } from '../data/preparationGuideData';
 
 const STORAGE_KEY = 'fairhire_all_jobs';
-const DATA_VERSION = 'v3_fairhire_company';
+const DATA_VERSION = 'v4_coimbatore';
 
 export { GENERAL_PREPARATION_CHECKLIST, PREPARATION_GUIDE_ROLES };
 

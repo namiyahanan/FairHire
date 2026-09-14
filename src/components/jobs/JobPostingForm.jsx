@@ -241,7 +241,7 @@ const JobPostingForm = ({ onSubmitSuccess }) => {
             name="location"
             value={formData.location}
             onChange={handleChange}
-            placeholder="e.g. Remote / Bengaluru / Hybrid"
+            placeholder="e.g. Coimbatore, Tamil Nadu"
           />
         </div>
 

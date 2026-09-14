@@ -58,7 +58,7 @@ export const jobApi = {
         trackId,
         trackName,
         trackBadge,
-        location: payload.location || 'Remote / Hybrid',
+        location: payload.location || 'Coimbatore, Tamil Nadu',
         postedTime: 'Just now',
         salary: payload.salary || '₹28 - 40 LPA ($140k)',
         experience: payload.experience || '3+ years',
