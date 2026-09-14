@@ -20,13 +20,20 @@ import {
   Clock,
   Compass,
   FileCheck,
-  Check
+  Check,
+  Upload,
+  FileUp,
+  RefreshCw,
+  Zap,
+  X,
+  FileText
 } from 'lucide-react';
 import {
   saveCompanyRequirements,
   getDefaultRoundsForCount,
   ROUND_PRESETS
 } from '../../services/requirementsStore';
+import { extractTextFromFile, parseResumeText } from '../../services/resumeParser';
 
 const CandidateRegistration = () => {
   const navigate = useNavigate();
@@ -37,6 +44,11 @@ const CandidateRegistration = () => {
 
   // Candidate experience level: 'fresher' | 'experienced'
   const [experienceType, setExperienceType] = useState('fresher');
+
+  // AI Resume Parser state
+  const [isParsingResume, setIsParsingResume] = useState(false);
+  const [parsingStep, setParsingStep] = useState(0);
+  const [parsedResumeFile, setParsedResumeFile] = useState(null);
 
   // Shared Account Data
   const [accountData, setAccountData] = useState({
@@ -84,6 +96,78 @@ const CandidateRegistration = () => {
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+
+  // Handle Real Resume File Extraction
+  const handleCustomResumeUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsParsingResume(true);
+    setParsingStep(0);
+
+    try {
+      setParsingStep(1);
+      const rawText = await extractTextFromFile(file);
+
+      setParsingStep(2);
+      await new Promise(r => setTimeout(r, 200));
+
+      setParsingStep(3);
+      const parsed = parseResumeText(rawText, file.name);
+
+      setAccountData(prev => ({
+        ...prev,
+        fullName: parsed.fullName || prev.fullName,
+        email: parsed.email || prev.email,
+        countryCode: parsed.countryCode || prev.countryCode,
+        mobile: parsed.mobile || prev.mobile,
+        password: prev.password || 'FairHire@2026'
+      }));
+
+      const expType = parsed.experienceType === 'fresher' ? 'fresher' : 'experienced';
+      setExperienceType(expType);
+
+      if (expType === 'fresher') {
+        setFresherData(prev => ({
+          ...prev,
+          institution: parsed.institution || prev.institution,
+          degree: parsed.degree || prev.degree,
+          graduationYear: parsed.graduationYear || prev.graduationYear,
+          primarySkills: Array.isArray(parsed.skills) ? parsed.skills.join(', ') : (parsed.skills || prev.primarySkills),
+          targetRole: parsed.targetRole || prev.targetRole,
+          portfolioUrl: parsed.portfolioUrl || prev.portfolioUrl
+        }));
+      } else {
+        setExperiencedData(prev => ({
+          ...prev,
+          currentTitle: parsed.currentTitle || prev.currentTitle,
+          currentCompany: parsed.currentCompany || prev.currentCompany,
+          yearsOfExperience: parsed.experienceYears || prev.yearsOfExperience,
+          primarySkills: Array.isArray(parsed.skills) ? parsed.skills.join(', ') : (parsed.skills || prev.primarySkills),
+          noticePeriod: parsed.noticePeriod || prev.noticePeriod,
+          expectedCtc: parsed.expectedSalary || prev.expectedCtc,
+          linkedinUrl: parsed.linkedinUrl || prev.linkedinUrl
+        }));
+      }
+
+      // Store full parsed data so the Profile Wizard can pick it up seamlessly
+      localStorage.setItem('fairhire_pending_profile_data', JSON.stringify({
+        ...parsed,
+        resumeFileName: file.name
+      }));
+
+      setParsedResumeFile(file.name);
+      setSuccessMessage(`✨ Real resume "${file.name}" parsed! Details auto-filled directly from file.`);
+      setErrors({});
+    } catch (err) {
+      console.error('Error parsing resume:', err);
+      setParsedResumeFile(file.name);
+      setSuccessMessage(`Resume "${file.name}" uploaded. Please verify your details.`);
+    } finally {
+      setIsParsingResume(false);
+    }
+  };
+
 
   const handleAccountChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -167,22 +251,8 @@ const CandidateRegistration = () => {
     const phoneErr = validatePhone(accountData.mobile);
     if (phoneErr) newErrors.mobile = phoneErr;
 
-    // Validate role specific fields
-    if (selectedPortal === ROLES.CANDIDATE) {
-      if (experienceType === 'fresher') {
-        if (!fresherData.institution.trim()) {
-          newErrors.institution = 'College / University name is required';
-        }
-      } else {
-        if (!experiencedData.currentTitle.trim()) {
-          newErrors.currentTitle = 'Current or recent job title is required';
-        }
-        if (!experiencedData.currentCompany.trim()) {
-          newErrors.currentCompany = 'Company name is required';
-        }
-      }
-    } else {
-      // HR validation
+    // For HR only — still need company name at registration
+    if (selectedPortal === ROLES.RECRUITER) {
       if (!hrData.companyName.trim()) {
         newErrors.companyName = 'Company / Organization name is required';
       }
@@ -199,19 +269,27 @@ const CandidateRegistration = () => {
     setIsSubmitting(true);
     setSuccessMessage('');
 
-    // Assemble unified payload
+    const candidateDetails = experienceType === 'fresher' ? fresherData : experiencedData;
     const payload = {
       ...accountData,
       role: selectedPortal,
       ...(selectedPortal === ROLES.CANDIDATE
-        ? {
-            experienceType,
-            details: experienceType === 'fresher' ? fresherData : experiencedData
-          }
-        : {
-            details: hrData
-          })
+        ? { experienceType, details: candidateDetails }
+        : { details: hrData }
+      )
     };
+
+    if (selectedPortal === ROLES.CANDIDATE) {
+      localStorage.setItem('fairhire_pending_profile_data', JSON.stringify({
+        fullName: accountData.fullName,
+        email: accountData.email,
+        countryCode: accountData.countryCode,
+        mobile: accountData.mobile,
+        experienceType,
+        ...candidateDetails,
+        resumeFileName: parsedResumeFile || ''
+      }));
+    }
 
     const res = await register(payload);
     setIsSubmitting(false);
@@ -241,7 +319,8 @@ const CandidateRegistration = () => {
         if (selectedPortal === ROLES.RECRUITER) {
           navigate('/recruiter/requirements');
         } else {
-          navigate(experienceType === 'fresher' ? '/candidate/profile' : '/candidate');
+          // Always send candidates to the profile wizard to complete/verify their profile
+          navigate('/candidate/profile');
         }
       }, 900);
     } else {
@@ -526,6 +605,7 @@ const CandidateRegistration = () => {
               </div>
             </div>
 
+
             {/* Success & Error Banners */}
             {successMessage && (
               <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-bold flex items-center gap-2">
@@ -623,164 +703,71 @@ const CandidateRegistration = () => {
 
               {/* 3. Role-Specific Questions */}
               {selectedPortal === ROLES.CANDIDATE ? (
-                /* =================== CANDIDATE QUESTIONS =================== */
-                <div className="space-y-4 pt-2">
+                /* === CANDIDATE: Work Status Only (Naukri-style) === */
+                <div className="space-y-3 pt-2">
                   <div className="flex items-center gap-2 pb-1 border-b border-slate-100">
                     <span className="w-2 h-2 rounded-full bg-teal-500"></span>
                     <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                      3. Candidate Experience Profile
+                      3. Work Status
                     </h4>
                   </div>
 
-                  {/* Fresher vs Experienced Switcher */}
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                      Experience Status <span className="text-rose-500">*</span>
-                    </label>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div
-                        onClick={() => setExperienceType('fresher')}
-                        className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${
-                          experienceType === 'fresher'
-                            ? 'bg-teal-50/70 border-teal-500 ring-2 ring-teal-200'
-                            : 'bg-white border-slate-200 hover:border-slate-300'
-                        }`}
-                      >
-                        <div className={`p-2 rounded-lg mt-0.5 ${experienceType === 'fresher' ? 'bg-teal-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                          <GraduationCap className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <h5 className="text-xs font-bold text-navy-900">Fresher / Early Career</h5>
-                          <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
-                            Recent college graduate, final-year student, or looking for entry roles.
-                          </p>
-                        </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div
+                      onClick={() => setExperienceType('experienced')}
+                      className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex items-start gap-3 ${
+                        experienceType === 'experienced'
+                          ? 'bg-teal-50/70 border-teal-500 ring-2 ring-teal-200'
+                          : 'bg-white border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className={`p-2 rounded-lg mt-0.5 ${experienceType === 'experienced' ? 'bg-teal-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                        <Briefcase className="w-4 h-4" />
                       </div>
+                      <div>
+                        <h5 className="text-sm font-bold text-navy-900">I'm experienced</h5>
+                        <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
+                          I have work experience (excluding internships)
+                        </p>
+                      </div>
+                    </div>
 
-                      <div
-                        onClick={() => setExperienceType('experienced')}
-                        className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start gap-3 ${
-                          experienceType === 'experienced'
-                            ? 'bg-teal-50/70 border-teal-500 ring-2 ring-teal-200'
-                            : 'bg-white border-slate-200 hover:border-slate-300'
-                        }`}
-                      >
-                        <div className={`p-2 rounded-lg mt-0.5 ${experienceType === 'experienced' ? 'bg-teal-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                          <Briefcase className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <h5 className="text-xs font-bold text-navy-900">Experienced Professional</h5>
-                          <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
-                            I have professional full-time industry engineering experience.
-                          </p>
-                        </div>
+                    <div
+                      onClick={() => setExperienceType('fresher')}
+                      className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex items-start gap-3 ${
+                        experienceType === 'fresher'
+                          ? 'bg-teal-50/70 border-teal-500 ring-2 ring-teal-200'
+                          : 'bg-white border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className={`p-2 rounded-lg mt-0.5 ${experienceType === 'fresher' ? 'bg-teal-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                        <GraduationCap className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h5 className="text-sm font-bold text-navy-900">I'm a fresher</h5>
+                        <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
+                          I am a student / Haven't worked after graduation
+                        </p>
                       </div>
                     </div>
                   </div>
 
-                  {/* FRESHER QUESTIONS */}
-                  {experienceType === 'fresher' && (
-                    <div className="p-4 rounded-2xl bg-teal-50/40 border border-teal-200/80 space-y-3.5 animate-fadeIn">
-                      <div className="text-xs font-bold text-teal-800 uppercase tracking-wider flex items-center gap-1.5">
-                        <GraduationCap className="w-4 h-4 text-teal-600" />
-                        <span>Fresher Onboarding Questions</span>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                        <Input
-                          label="College / University Name"
-                          name="institution"
-                          value={fresherData.institution}
-                          onChange={handleFresherChange}
-                          placeholder="e.g. IIT Bombay / Stanford"
-                          required
-                          error={errors.institution}
-                        />
-
-                        <div className="flex flex-col gap-1.5">
-                          <label className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                            Degree & Major
-                          </label>
-                          <select
-                            name="degree"
-                            value={fresherData.degree}
-                            onChange={handleFresherChange}
-                            className="rounded-lg text-xs font-semibold bg-white border border-slate-300 px-3 py-2.5 outline-none focus:border-teal-500 text-slate-800"
-                          >
-                            <option value="B.Tech / B.E. Computer Science">B.Tech / B.E. Computer Science</option>
-                            <option value="B.Tech Information Technology">B.Tech Information Technology</option>
-                            <option value="B.S. / M.S. Software Engineering">B.S. / M.S. Software Engineering</option>
-                            <option value="BCA / MCA">BCA / MCA</option>
-                            <option value="Other STEM Degree">Other STEM Degree</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                        <div className="flex flex-col gap-1.5">
-                          <label className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                            Graduation Year
-                          </label>
-                          <select
-                            name="graduationYear"
-                            value={fresherData.graduationYear}
-                            onChange={handleFresherChange}
-                            className="rounded-lg text-xs font-semibold bg-white border border-slate-300 px-3 py-2.5 outline-none focus:border-teal-500 text-slate-800"
-                          >
-                            <option value="2026">2026 (Upcoming Graduate)</option>
-                            <option value="2025">2025 (Graduating This Year)</option>
-                            <option value="2024">2024 (Recent Graduate)</option>
-                            <option value="2023">2023</option>
-                          </select>
-                        </div>
-
-                        <Input
-                          label="Target Role Preference"
-                          name="targetRole"
-                          value={fresherData.targetRole}
-                          onChange={handleFresherChange}
-                          placeholder="e.g. Junior Frontend / Full Stack"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                        <Input
-                          label="Core Technical Skills (Comma separated)"
-                          name="primarySkills"
-                          value={fresherData.primarySkills}
-                          onChange={handleFresherChange}
-                          placeholder="e.g. React, JavaScript, Python, SQL"
-                        />
-
-                        <Input
-                          label="GitHub / Project Portfolio URL"
-                          name="portfolioUrl"
-                          value={fresherData.portfolioUrl}
-                          onChange={handleFresherChange}
-                          placeholder="https://github.com/username"
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* EXPERIENCED QUESTIONS */}
+                  {/* Dynamic Fields: Experienced Professional */}
                   {experienceType === 'experienced' && (
-                    <div className="p-4 rounded-2xl bg-teal-50/40 border border-teal-200/80 space-y-3.5 animate-fadeIn">
-                      <div className="text-xs font-bold text-teal-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <div className="p-5 rounded-2xl bg-teal-50/40 border border-teal-200/80 space-y-4 animate-fade-in mt-2">
+                      <div className="flex items-center gap-2 text-xs font-bold text-teal-950 uppercase tracking-wider">
                         <Briefcase className="w-4 h-4 text-teal-600" />
-                        <span>Experienced Professional Questions</span>
+                        <span>Employment & Experience Details</span>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <Input
-                          label="Current / Most Recent Job Title"
+                          label="Current / Previous Job Title"
                           name="currentTitle"
                           value={experiencedData.currentTitle}
                           onChange={handleExperiencedChange}
-                          placeholder="e.g. Senior Frontend Engineer"
+                          placeholder="e.g. Senior Full Stack Engineer"
                           required
-                          error={errors.currentTitle}
                         />
 
                         <Input
@@ -788,16 +775,15 @@ const CandidateRegistration = () => {
                           name="currentCompany"
                           value={experiencedData.currentCompany}
                           onChange={handleExperiencedChange}
-                          placeholder="e.g. Stripe / TechCorp"
+                          placeholder="e.g. Google / Microsoft"
                           required
-                          error={errors.currentCompany}
                         />
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="flex flex-col gap-1.5">
                           <label className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                            Total Years of Experience
+                            Total Work Experience
                           </label>
                           <select
                             name="yearsOfExperience"
@@ -805,10 +791,10 @@ const CandidateRegistration = () => {
                             onChange={handleExperiencedChange}
                             className="rounded-lg text-xs font-semibold bg-white border border-slate-300 px-3 py-2.5 outline-none focus:border-teal-500 text-slate-800"
                           >
-                            <option value="1-2 years">1 - 2 Years</option>
-                            <option value="3-5 years">3 - 5 Years</option>
-                            <option value="5-8 years">5 - 8 Years</option>
-                            <option value="8+ years">8+ Years (Lead / Staff)</option>
+                            <option value="1-2 years">1 - 2 years</option>
+                            <option value="3-5 years">3 - 5 years</option>
+                            <option value="5-8 years">5 - 8 years</option>
+                            <option value="8+ years">8+ years</option>
                           </select>
                         </div>
 
@@ -822,29 +808,106 @@ const CandidateRegistration = () => {
                             onChange={handleExperiencedChange}
                             className="rounded-lg text-xs font-semibold bg-white border border-slate-300 px-3 py-2.5 outline-none focus:border-teal-500 text-slate-800"
                           >
-                            <option value="Immediate">Immediate / Available Now</option>
+                            <option value="Immediate">Immediate</option>
                             <option value="15 Days">15 Days</option>
                             <option value="30 Days">30 Days</option>
-                            <option value="60+ Days">60+ Days</option>
+                            <option value="60 Days">60 Days</option>
+                            <option value="90 Days">90 Days</option>
                           </select>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <Input
-                          label="Core Tech Stack & Architecture"
+                          label="Key Technical Skills"
                           name="primarySkills"
                           value={experiencedData.primarySkills}
                           onChange={handleExperiencedChange}
-                          placeholder="e.g. React 18, Node.js, AWS, Tailwind"
+                          placeholder="e.g. React, Node.js, Python, AWS"
                         />
 
                         <Input
-                          label="LinkedIn / Portfolio URL"
-                          name="linkedinUrl"
-                          value={experiencedData.linkedinUrl}
+                          label="Annual Salary / Current CTC"
+                          name="expectedCtc"
+                          value={experiencedData.expectedCtc}
                           onChange={handleExperiencedChange}
-                          placeholder="https://linkedin.com/in/username"
+                          placeholder="e.g. ₹15,00,000 / $110,000"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Dynamic Fields: Fresher */}
+                  {experienceType === 'fresher' && (
+                    <div className="p-5 rounded-2xl bg-teal-50/40 border border-teal-200/80 space-y-4 animate-fade-in mt-2">
+                      <div className="flex items-center gap-2 text-xs font-bold text-teal-950 uppercase tracking-wider">
+                        <GraduationCap className="w-4 h-4 text-teal-600" />
+                        <span>Education & Academic Credentials</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <Input
+                          label="Highest Qualification / Degree"
+                          name="degree"
+                          value={fresherData.degree}
+                          onChange={handleFresherChange}
+                          placeholder="e.g. B.Tech / B.E. Computer Science"
+                          required
+                        />
+
+                        <Input
+                          label="College / University Name"
+                          name="institution"
+                          value={fresherData.institution}
+                          onChange={handleFresherChange}
+                          placeholder="e.g. Stanford University / IIT"
+                          required
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+                            Graduation / Passing Year
+                          </label>
+                          <select
+                            name="graduationYear"
+                            value={fresherData.graduationYear}
+                            onChange={handleFresherChange}
+                            className="rounded-lg text-xs font-semibold bg-white border border-slate-300 px-3 py-2.5 outline-none focus:border-teal-500 text-slate-800"
+                          >
+                            <option value="2026">2026 (Upcoming)</option>
+                            <option value="2025">2025</option>
+                            <option value="2024">2024</option>
+                            <option value="2023">2023</option>
+                            <option value="2022">2022</option>
+                          </select>
+                        </div>
+
+                        <Input
+                          label="Target Job Role"
+                          name="targetRole"
+                          value={fresherData.targetRole}
+                          onChange={handleFresherChange}
+                          placeholder="e.g. Junior Frontend Developer"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <Input
+                          label="Key Skills / Technologies"
+                          name="primarySkills"
+                          value={fresherData.primarySkills}
+                          onChange={handleFresherChange}
+                          placeholder="e.g. Java, Python, React, C++"
+                        />
+
+                        <Input
+                          label="GitHub / Portfolio Link"
+                          name="portfolioUrl"
+                          value={fresherData.portfolioUrl}
+                          onChange={handleFresherChange}
+                          placeholder="https://github.com/username"
                         />
                       </div>
                     </div>
@@ -1093,8 +1156,8 @@ const CandidateRegistration = () => {
                         ))}
                       </div>
                     </div>
-                  </div>
-                </div>
+                   </div>
+                 </div>
               )}
 
               {/* Consent & Agreements */}
@@ -1134,9 +1197,7 @@ const CandidateRegistration = () => {
                   <span>
                     {selectedPortal === ROLES.RECRUITER
                       ? 'Complete HR Setup & Launch Hub'
-                      : experienceType === 'fresher'
-                      ? 'Register & Build Fresher Profile'
-                      : 'Register & Launch Candidate Workspace'}
+                      : 'Register Now →'}
                   </span>
                   <ArrowRight className="w-4 h-4" />
                 </Button>

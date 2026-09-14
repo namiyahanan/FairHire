@@ -25,7 +25,6 @@ import {
   Terminal,
   Brain,
   Shield,
-  ShieldCheck,
   Search,
   Check,
   Send,
@@ -45,15 +44,20 @@ import {
   GENERAL_PREPARATION_CHECKLIST,
   PREPARATION_GUIDE_ROLES
 } from '../../services/jobStore';
-import { getCompanyRequirements, getCompanyRounds } from '../../services/requirementsStore';
+import { getCompanyRounds } from '../../services/requirementsStore';
 import { candidateApi } from '../../services/candidateApi';
-import { getCandidateHiringState } from '../../services/candidateHiringStore';
+
+// Top Companies
+const TOP_COMPANIES = [
+  { name: 'GE Healthcare', rating: 3.9, reviews: '955 reviews', logoText: 'GE', bgColor: 'bg-sky-600', roleCount: 3 },
+  { name: 'Metropolis Health...', rating: 3.9, reviews: '1.1K+ reviews', logoText: 'MH', bgColor: 'bg-emerald-600', roleCount: 2 },
+  { name: 'Assa Abloy', rating: 3.6, reviews: '242 reviews', logoText: 'AA', bgColor: 'bg-slate-700', roleCount: 1 },
+  { name: 'Stripe', rating: 4.4, reviews: '3.2K+ reviews', logoText: 'S', bgColor: 'bg-indigo-600', roleCount: 4 },
+  { name: 'Atlassian', rating: 4.2, reviews: '2.8K+ reviews', logoText: 'AT', bgColor: 'bg-blue-600', roleCount: 3 }
+];
 
 const CandidateDashboard = () => {
   const { user } = useAuth();
-
-  // Dynamic enterprise requirements from HR portal
-  const [companyReqs, setCompanyReqs] = useState(() => getCompanyRequirements());
 
   // Dynamic jobs list from persistent Job Store
   const [jobsList, setJobsList] = useState(() => getStoredJobs());
@@ -112,11 +116,9 @@ const CandidateDashboard = () => {
 
   // Real-time synchronization with Job Store & HR Uploads
   const [isProfileFrozen, setIsProfileFrozen] = useState(() => {
-    return localStorage.getItem('fairhire_profile_frozen') === 'true';
+    const uid = user?._id || user?.id || 'guest';
+    return localStorage.getItem(`fairhire_profile_frozen_${uid}`) === 'true';
   });
-
-  // Candidate hiring progression state
-  const [candidateHiring, setCandidateHiring] = useState(() => getCandidateHiringState('CAND-8492'));
 
   useEffect(() => {
     const syncJobs = () => {
@@ -124,36 +126,20 @@ const CandidateDashboard = () => {
     };
 
     const handleProfileUpdate = () => {
-      setIsProfileFrozen(localStorage.getItem('fairhire_profile_frozen') === 'true');
-    };
-
-    const handleHiringUpdate = () => {
-      setCandidateHiring(getCandidateHiringState('CAND-8492'));
-    };
-
-    const syncRequirements = () => {
-      setCompanyReqs(getCompanyRequirements());
-      setJobsList(getStoredJobs());
+      const uid = user?._id || user?.id || 'guest';
+      setIsProfileFrozen(localStorage.getItem(`fairhire_profile_frozen_${uid}`) === 'true');
     };
 
     window.addEventListener('fairhire_jobs_updated', syncJobs);
     window.addEventListener('fairhire_profile_updated', handleProfileUpdate);
-    window.addEventListener('fairhire_hiring_updated', handleHiringUpdate);
-    window.addEventListener('fairhire_candidate_status_updated', handleHiringUpdate);
-    window.addEventListener('fairhire_recruiter_requirements_updated', syncRequirements);
     window.addEventListener('storage', syncJobs);
     window.addEventListener('storage', handleProfileUpdate);
-    window.addEventListener('storage', handleHiringUpdate);
 
     return () => {
       window.removeEventListener('fairhire_jobs_updated', syncJobs);
       window.removeEventListener('fairhire_profile_updated', handleProfileUpdate);
-      window.removeEventListener('fairhire_hiring_updated', handleHiringUpdate);
-      window.removeEventListener('fairhire_candidate_status_updated', handleHiringUpdate);
-      window.removeEventListener('fairhire_recruiter_requirements_updated', syncRequirements);
       window.removeEventListener('storage', syncJobs);
       window.removeEventListener('storage', handleProfileUpdate);
-      window.removeEventListener('storage', handleHiringUpdate);
     };
   }, []);
 
@@ -166,70 +152,22 @@ const CandidateDashboard = () => {
   const handleApplyToJob = async (role, e) => {
     if (e) e.stopPropagation();
 
-    // 1. Resolve candidate profile details from user or stored profile
-    let candidateName = user?.name;
-    let candidateEmail = user?.email;
-    let candidateMobile = user?.profile?.mobile || '+91 9876543210';
-    let candidateLocation = user?.profile?.location || 'Remote / Hybrid';
-    let candidateDegree = role.degree || "Bachelor's Degree";
-    let candidateExp = role.experience || '3 years';
-    let candidateSkills = role.tags || role.skills || [];
-    let candidateSummary = '';
+    // 1. Save to candidate applicationStore
+    applyToJobStore(role, user);
 
-    try {
-      const savedProfile = localStorage.getItem('fairhire_frozen_profile_data');
-      if (savedProfile) {
-        const parsed = JSON.parse(savedProfile);
-        if (parsed.fullName) candidateName = parsed.fullName;
-        if (parsed.email) candidateEmail = parsed.email;
-        if (parsed.mobile) candidateMobile = parsed.mobile;
-        if (parsed.location) candidateLocation = parsed.location;
-        if (parsed.degree) candidateDegree = parsed.degree;
-        if (parsed.experienceYears) candidateExp = parsed.experienceYears;
-        if (parsed.summary) candidateSummary = parsed.summary;
-        if (parsed.skills) {
-          const pSkills = typeof parsed.skills === 'string'
-            ? parsed.skills.split(',').map(s => s.trim()).filter(Boolean)
-            : parsed.skills;
-          if (pSkills.length > 0) candidateSkills = pSkills;
-        }
-      }
-    } catch (err) {}
-
-    if (!candidateName) candidateName = 'Alex Morgan';
-    if (!candidateEmail) candidateEmail = 'alex.morgan@gmail.com';
-
-    const candId = (user?.id && user.id.startsWith('USR-'))
-      ? user.id.replace('USR-', 'CAND-')
-      : 'CAND-8492';
-
-    // 2. Save to candidate applicationStore
-    const appUser = {
-      id: candId,
-      name: candidateName,
-      email: candidateEmail,
-      mobile: candidateMobile,
-      location: candidateLocation
-    };
-    applyToJobStore(role, appUser);
-
-    // 3. Increment applicant count in unified jobStore
+    // 2. Increment applicant count in unified jobStore
     incrementJobApplicantCount(role.id);
 
-    // 4. Register in candidateApi for recruiter pipeline
+    // 3. Register in candidateApi for recruiter pipeline
     try {
       await candidateApi.applyCandidate({
-        candidateId: candId,
         jobId: role.id,
         targetRole: role.title,
-        fullName: candidateName,
-        email: candidateEmail,
-        mobile: candidateMobile,
-        location: candidateLocation,
-        experience: candidateExp,
-        degree: candidateDegree,
-        skills: candidateSkills,
-        summary: candidateSummary || `Candidate applied for ${role.title} at ${companyReqs.companyName || role.company || 'FairHire Enterprise'}.`
+        fullName: user?.name || 'Alex Morgan',
+        email: user?.email || 'alex.morgan@example.com',
+        experience: role.experience || '3 years',
+        degree: role.degree || "Bachelor's Degree",
+        skills: role.tags || role.skills || []
       });
     } catch (err) {
       console.warn('Candidate sync error', err);
@@ -312,11 +250,10 @@ const CandidateDashboard = () => {
             <button
               type="button"
               onClick={() => setActiveMainTab('jobs')}
-              className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                activeMainTab === 'jobs'
-                  ? 'bg-navy-900 text-white shadow-xs'
-                  : 'bg-slate-50 text-slate-600 hover:text-navy-900 hover:bg-slate-100'
-              }`}
+              className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${activeMainTab === 'jobs'
+                ? 'bg-navy-900 text-white shadow-xs'
+                : 'bg-slate-50 text-slate-600 hover:text-navy-900 hover:bg-slate-100'
+                }`}
             >
               <Building2 className="w-4 h-4 text-teal-400" />
               <span>Live Job Openings ({jobsList.length})</span>
@@ -330,11 +267,10 @@ const CandidateDashboard = () => {
             <button
               type="button"
               onClick={() => setActiveMainTab('guide')}
-              className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                activeMainTab === 'guide'
-                  ? 'bg-navy-900 text-white shadow-xs'
-                  : 'bg-slate-50 text-slate-600 hover:text-navy-900 hover:bg-slate-100'
-              }`}
+              className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${activeMainTab === 'guide'
+                ? 'bg-navy-900 text-white shadow-xs'
+                : 'bg-slate-50 text-slate-600 hover:text-navy-900 hover:bg-slate-100'
+                }`}
             >
               <BookOpen className="w-4 h-4 text-teal-400" />
               <span>Complete Preparation Guide (7 Roles)</span>
@@ -349,42 +285,6 @@ const CandidateDashboard = () => {
             <span className="font-bold text-teal-600">{completedChecklistCount}/{GENERAL_PREPARATION_CHECKLIST.length} Completed</span>
           </div>
         </div>
-
-        {/* ================= ACTIVE INTERVIEW ROUND ASSESSMENT BANNER ================= */}
-        {candidateHiring?.stage === 'Review' && candidateHiring?.rounds?.[candidateHiring.currentRoundIndex || 0]?.status === 'waiting_candidate' && (
-          <div className="bg-gradient-to-r from-teal-600 via-emerald-600 to-teal-700 text-white rounded-3xl p-5 sm:p-6 shadow-xl border-2 border-teal-300/40 flex flex-col md:flex-row md:items-center justify-between gap-4 animate-in fade-in">
-            <div className="flex items-center gap-3.5">
-              <div className="w-12 h-12 rounded-2xl bg-white text-teal-700 flex items-center justify-center shrink-0 font-black shadow-md">
-                <PlayCircle className="w-7 h-7" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-black uppercase tracking-wider bg-white/20 text-white px-2.5 py-0.5 rounded-full">
-                    Action Required • Round {(candidateHiring.currentRoundIndex || 0) + 1}
-                  </span>
-                  <span className="text-xs text-teal-100 font-semibold">• Approved & Sent by HR</span>
-                </div>
-                <h4 className="text-base sm:text-lg font-black text-white mt-1">
-                  You are invited to attend: {candidateHiring.rounds[candidateHiring.currentRoundIndex || 0]?.name}
-                </h4>
-                <p className="text-xs text-teal-100 mt-0.5 flex flex-wrap items-center gap-2">
-                  <span>⏱️ Complete within <strong>{candidateHiring.rounds[candidateHiring.currentRoundIndex || 0]?.invitation?.deadlineDays || 3} days</strong> (Deadline: {candidateHiring.rounds[candidateHiring.currentRoundIndex || 0]?.invitation?.deadlineDate || '3 days'})</span>
-                  <span>•</span>
-                  <span>📅 <strong>{candidateHiring.rounds[candidateHiring.currentRoundIndex || 0]?.invitation?.timingSlots?.length || 3} Timing Slots</strong> available</span>
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2.5 shrink-0 self-end md:self-auto">
-              <Link to="/candidate/status">
-                <button className="px-5 py-2.5 rounded-xl bg-white hover:bg-teal-50 text-teal-900 text-xs font-black shadow-md transition-all flex items-center gap-1.5 cursor-pointer">
-                  <span>Select Slot & Attend Assessment</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              </Link>
-            </div>
-          </div>
-        )}
 
         {/* ================= APPLICATION SUBMITTED LIVE NOTIFICATION BANNER ================= */}
         {justAppliedJob && (
@@ -431,7 +331,7 @@ const CandidateDashboard = () => {
         {/* ================= VIEW MODE 1: COMPLETE PREPARATION GUIDE ================= */}
         {activeMainTab === 'guide' && (
           <div className="space-y-8 animate-fadeIn">
-            
+
             {/* Guide Header Card */}
             <div className="bg-gradient-to-r from-navy-900 via-navy-800 to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-navy-700">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
@@ -469,11 +369,10 @@ const CandidateDashboard = () => {
                   <button
                     key={role.id}
                     onClick={() => setSelectedGuideRoleId(role.id)}
-                    className={`px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 cursor-pointer ${
-                      selectedGuideRoleId === role.id
-                        ? 'bg-teal-500 text-white shadow-md scale-105'
-                        : 'bg-white/10 text-slate-300 hover:bg-white/20 hover:text-white'
-                    }`}
+                    className={`px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 cursor-pointer ${selectedGuideRoleId === role.id
+                      ? 'bg-teal-500 text-white shadow-md scale-105'
+                      : 'bg-white/10 text-slate-300 hover:bg-white/20 hover:text-white'
+                      }`}
                   >
                     <span>{role.icon}</span>
                     <span>{role.title}</span>
@@ -484,7 +383,7 @@ const CandidateDashboard = () => {
 
             {/* Selected Role Detailed Guide Card */}
             <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-8">
-              
+
               {/* Role Hero Banner */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
                 <div className="flex items-center gap-4">
@@ -711,20 +610,18 @@ const CandidateDashboard = () => {
                     <div
                       key={item.step}
                       onClick={() => toggleChecklist(item.step)}
-                      className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-start justify-between gap-4 ${
-                        isChecked
-                          ? 'bg-teal-50/40 border-teal-300'
-                          : 'bg-white border-slate-200 hover:border-slate-300'
-                      }`}
+                      className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-start justify-between gap-4 ${isChecked
+                        ? 'bg-teal-50/40 border-teal-300'
+                        : 'bg-white border-slate-200 hover:border-slate-300'
+                        }`}
                     >
                       <div className="flex items-start gap-3.5">
                         <button
                           type="button"
-                          className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5 transition-all ${
-                            isChecked
-                              ? 'bg-teal-600 text-white'
-                              : 'border-2 border-slate-300 bg-white text-transparent hover:border-teal-400'
-                          }`}
+                          className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5 transition-all ${isChecked
+                            ? 'bg-teal-600 text-white'
+                            : 'border-2 border-slate-300 bg-white text-transparent hover:border-teal-400'
+                            }`}
                         >
                           <Check className="w-3.5 h-3.5" />
                         </button>
@@ -761,7 +658,7 @@ const CandidateDashboard = () => {
         {/* ================= VIEW MODE 2: LIVE JOB OPENINGS & HR UPLOADS ================= */}
         {activeMainTab === 'jobs' && (
           <div className="space-y-8 animate-fadeIn">
-            
+
             {/* 2. DIVERSITY & INCLUSION CARD */}
             {!isDiversitySubmitted && (
               <section className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-7 shadow-sm transition-all duration-300">
@@ -779,11 +676,10 @@ const CandidateDashboard = () => {
                   <button
                     type="button"
                     onClick={() => setDisabilityStatus('has_disability')}
-                    className={`px-5 py-2 rounded-full text-xs font-semibold transition-all border cursor-pointer ${
-                      disabilityStatus === 'has_disability'
-                        ? 'bg-navy-900 text-white border-navy-900 shadow-xs'
-                        : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'
-                    }`}
+                    className={`px-5 py-2 rounded-full text-xs font-semibold transition-all border cursor-pointer ${disabilityStatus === 'has_disability'
+                      ? 'bg-navy-900 text-white border-navy-900 shadow-xs'
+                      : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'
+                      }`}
                   >
                     I have a disability
                   </button>
@@ -791,11 +687,10 @@ const CandidateDashboard = () => {
                   <button
                     type="button"
                     onClick={() => setDisabilityStatus('none')}
-                    className={`px-5 py-2 rounded-full text-xs font-semibold transition-all border cursor-pointer ${
-                      disabilityStatus === 'none'
-                        ? 'bg-navy-900 text-white border-navy-900 shadow-xs'
-                        : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'
-                    }`}
+                    className={`px-5 py-2 rounded-full text-xs font-semibold transition-all border cursor-pointer ${disabilityStatus === 'none'
+                      ? 'bg-navy-900 text-white border-navy-900 shadow-xs'
+                      : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'
+                      }`}
                   >
                     I don't have a disability
                   </button>
@@ -803,11 +698,10 @@ const CandidateDashboard = () => {
                   <button
                     type="button"
                     onClick={() => setDisabilityStatus('prefer_not_to_say')}
-                    className={`px-5 py-2 rounded-full text-xs font-semibold transition-all border cursor-pointer ${
-                      disabilityStatus === 'prefer_not_to_say'
-                        ? 'bg-navy-900 text-white border-navy-900 shadow-xs'
-                        : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'
-                    }`}
+                    className={`px-5 py-2 rounded-full text-xs font-semibold transition-all border cursor-pointer ${disabilityStatus === 'prefer_not_to_say'
+                      ? 'bg-navy-900 text-white border-navy-900 shadow-xs'
+                      : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'
+                      }`}
                   >
                     Prefer not to say
                   </button>
@@ -852,15 +746,14 @@ const CandidateDashboard = () => {
                     <button
                       key={tab.id}
                       onClick={() => setSelectedTrack(tab.id)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
-                        selectedTrack === tab.id
-                          ? tab.isSpecial
-                            ? 'bg-purple-700 text-white shadow-xs'
-                            : 'bg-navy-900 text-white shadow-xs'
-                          : tab.isSpecial
-                            ? 'bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${selectedTrack === tab.id
+                        ? tab.isSpecial
+                          ? 'bg-purple-700 text-white shadow-xs'
+                          : 'bg-navy-900 text-white shadow-xs'
+                        : tab.isSpecial
+                          ? 'bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
                     >
                       {tab.label}
                     </button>
@@ -897,11 +790,10 @@ const CandidateDashboard = () => {
                   <div
                     key={role.id}
                     onClick={() => setSelectedJob(role)}
-                    className={`p-5 rounded-2xl bg-white border transition-all cursor-pointer flex flex-col justify-between group relative overflow-hidden ${
-                      role.isHrUploaded
-                        ? 'border-purple-200 hover:border-purple-400 hover:shadow-lg bg-gradient-to-b from-purple-50/20 to-white'
-                        : 'border-slate-200 hover:border-teal-400 hover:shadow-lg'
-                    }`}
+                    className={`p-5 rounded-2xl bg-white border transition-all cursor-pointer flex flex-col justify-between group relative overflow-hidden ${role.isHrUploaded
+                      ? 'border-purple-200 hover:border-purple-400 hover:shadow-lg bg-gradient-to-b from-purple-50/20 to-white'
+                      : 'border-slate-200 hover:border-teal-400 hover:shadow-lg'
+                      }`}
                   >
                     <div>
                       {/* Track Badge & Posted time */}
@@ -925,11 +817,11 @@ const CandidateDashboard = () => {
                       {/* Company Info */}
                       <div className="flex items-center gap-3 mb-3">
                         <div className={`w-10 h-10 rounded-xl ${role.companyBg || 'bg-teal-600'} text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0`}>
-                          {companyReqs.companyName ? companyReqs.companyName.charAt(0) : (role.companyInitial || 'FH')}
+                          {role.companyInitial || (role.company?.charAt(0) || 'J')}
                         </div>
                         <div>
                           <div className="flex items-center gap-1.5">
-                            <h5 className="font-bold text-slate-900 text-sm line-clamp-1">{companyReqs.companyName || role.company || 'FairHire Enterprise'}</h5>
+                            <h5 className="font-bold text-slate-900 text-sm line-clamp-1">{role.company || 'FairHire Enterprise'}</h5>
                             <span className="text-[11px] text-amber-500 font-bold flex items-center gap-0.5">
                               ★ {role.rating || 4.5}
                             </span>
@@ -1033,91 +925,55 @@ const CandidateDashboard = () => {
               )}
             </section>
 
-            {/* 4. HIRING ORGANIZATION SHOWCASE (SYNCHRONIZED WITH HR PORTAL) */}
-            <section className="bg-gradient-to-br from-navy-900 via-slate-900 to-teal-950 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-teal-500/20 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-96 h-96 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
-              <div className="relative z-10">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-6 border-b border-white/10">
-                  <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 rounded-2xl bg-teal-600 text-white flex items-center justify-center font-black text-2xl shadow-lg ring-4 ring-teal-400/20 shrink-0">
-                      {companyReqs.companyName ? companyReqs.companyName.charAt(0) : 'FH'}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[10px] font-black uppercase tracking-wider bg-teal-500/20 text-teal-300 border border-teal-400/30 px-3 py-0.5 rounded-full flex items-center gap-1.5">
-                          <ShieldCheck className="w-3.5 h-3.5 text-teal-400" />
-                          <span>Verified Hiring Enterprise • HR Portal Synchronized</span>
-                        </span>
-                        <span className="text-xs text-slate-300">Token: {companyReqs.verificationToken || 'FH-EEOC-HR-8842'}</span>
-                      </div>
-                      <h3 className="text-2xl sm:text-3xl font-black text-white tracking-tight mt-1">
-                        {companyReqs.companyName || 'FairHire Enterprise'}
-                      </h3>
-                      <p className="text-xs text-teal-300/90 font-semibold mt-0.5">
-                        {companyReqs.industry || 'Software & Cloud Engineering'} • {companyReqs.headquarters || 'San Francisco, CA / Bengaluru Global Hub'}
-                      </p>
-                    </div>
-                  </div>
+            {/* 4. TOP COMPANIES SECTION */}
+            <section className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm">
+              <div className="flex items-center justify-between pb-5 border-b border-slate-100">
+                <h3 className="text-xl font-extrabold text-navy-900 tracking-tight">
+                  Top companies
+                </h3>
+                <button
+                  onClick={() => {
+                    setSelectedTrack('ALL');
+                    setSearchQuery('');
+                  }}
+                  className="text-xs font-bold text-teal-600 hover:text-navy-900 transition-colors cursor-pointer"
+                >
+                  View all
+                </button>
+              </div>
 
-                  <div className="flex items-center gap-3 shrink-0">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 pt-5">
+                {TOP_COMPANIES.map((comp, idx) => (
+                  <div
+                    key={idx}
+                    className="p-5 rounded-2xl border border-slate-200 hover:border-teal-400 hover:shadow-md transition-all text-center flex flex-col items-center justify-between bg-slate-50/50"
+                  >
+                    <div>
+                      <div className={`w-14 h-14 rounded-2xl ${comp.bgColor} text-white flex items-center justify-center font-black text-lg mx-auto shadow-sm mb-3`}>
+                        {comp.logoText}
+                      </div>
+                      <h4 className="font-bold text-navy-900 text-sm line-clamp-1">
+                        {comp.name}
+                      </h4>
+                      <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 mt-1">
+                        <span className="font-bold text-amber-500">★ {comp.rating}</span>
+                        <span>|</span>
+                        <span className="text-[11px]">{comp.reviews}</span>
+                      </div>
+                    </div>
+
                     <button
                       type="button"
                       onClick={() => {
-                        setSelectedTrack('ALL');
-                        setSearchQuery('');
-                        window.scrollTo({ top: 300, behavior: 'smooth' });
+                        setSearchQuery(comp.name.split(' ')[0]);
+                        window.scrollTo({ top: 400, behavior: 'smooth' });
                       }}
-                      className="px-5 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-navy-950 text-xs font-black transition-all shadow-md flex items-center gap-2 cursor-pointer"
+                      className="mt-4 w-full py-2 rounded-xl text-xs font-bold text-teal-600 hover:bg-teal-50 border border-teal-200 transition-colors cursor-pointer"
                     >
-                      <span>Explore Open Positions ({jobsList.length})</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
+                      View jobs
                     </button>
                   </div>
-                </div>
-
-                {/* Company stats & HR hiring mission */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-6">
-                  <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Headquarters</span>
-                    <p className="text-xs font-bold text-white mt-1 flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-                      <span className="line-clamp-1">{companyReqs.headquarters || 'Remote / Hybrid'}</span>
-                    </p>
-                  </div>
-
-                  <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Work Model</span>
-                    <p className="text-xs font-bold text-white mt-1 flex items-center gap-1.5">
-                      <Building2 className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-                      <span>{companyReqs.workModel || 'Hybrid / Remote Friendly'}</span>
-                    </p>
-                  </div>
-
-                  <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Evaluation Rounds</span>
-                    <p className="text-xs font-bold text-white mt-1 flex items-center gap-1.5">
-                      <Award className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-                      <span>{companyReqs.rounds?.length || companyReqs.numRounds || 3} Structured Rounds</span>
-                    </p>
-                  </div>
-
-                  <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Hiring Standard</span>
-                    <p className="text-xs font-bold text-teal-300 mt-1 flex items-center gap-1.5">
-                      <ShieldCheck className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-                      <span>EEOC 80% Rule Blind Screening</span>
-                    </p>
-                  </div>
-                </div>
-
-                {/* Mission Quote */}
-                <div className="mt-5 p-4 rounded-2xl bg-teal-950/40 border border-teal-500/20 text-xs text-slate-300 flex items-start gap-3">
-                  <Sparkles className="w-4 h-4 text-teal-400 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold text-white">Talent Acquisition Mission: </span>
-                    <span>{companyReqs.hiringMission || 'Committed to 100% blind merit-based screening under the EEOC 80% adverse impact standard. Candidates are evaluated contextually on demonstrated capabilities rather than pedigree.'}</span>
-                  </div>
-                </div>
+                ))}
               </div>
             </section>
           </div>
@@ -1129,7 +985,7 @@ const CandidateDashboard = () => {
       {selectedJob && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-navy-950/70 backdrop-blur-sm animate-fadeIn">
           <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-y-auto flex flex-col">
-            
+
             {/* Modal Header */}
             <div className="p-6 sm:p-8 border-b border-slate-100 bg-gradient-to-r from-slate-50/80 to-white sticky top-0 z-10">
               <div className="flex items-start justify-between gap-4">
@@ -1153,7 +1009,7 @@ const CandidateDashboard = () => {
                       {selectedJob.title} — Preparation Guide & Specifications
                     </h3>
                     <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-1">
-                      <span className="font-bold text-slate-800">{companyReqs.companyName || selectedJob.company || 'FairHire Enterprise'}</span>
+                      <span className="font-bold text-slate-800">{selectedJob.company || 'FairHire Enterprise'}</span>
                       <span>•</span>
                       <span>{selectedJob.location}</span>
                       <span>•</span>
@@ -1173,7 +1029,7 @@ const CandidateDashboard = () => {
 
             {/* Modal Body */}
             <div className="p-6 sm:p-8 space-y-7">
-              
+
               {/* Role Scope & Screening Criteria */}
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
@@ -1256,7 +1112,7 @@ const CandidateDashboard = () => {
 
               {/* Recommended Courses & Certifications */}
               <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb- 3">
                   Recommended Courses & Certifications
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

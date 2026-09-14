@@ -15,20 +15,31 @@ import {
   Sparkles,
   LogOut,
   Lock,
-  Sliders,
-  ClipboardList
+  ClipboardList,
+  Pin,
+  PinOff,
+  X
 } from 'lucide-react';
 
-const Sidebar = () => {
+const Sidebar = ({
+  isOpen = false,
+  isPinned = false,
+  onMouseEnter,
+  onMouseLeave,
+  onTogglePin,
+  onClose
+}) => {
   const { role, user, logout } = useAuth();
+  const userId = user?._id || user?.id || 'guest';
   const [isApproved, setIsApproved] = useState(() => isInterviewBookingApproved('CAND-8492').approved);
-  const [isProfileFrozen, setIsProfileFrozen] = useState(() => localStorage.getItem('fairhire_profile_frozen') === 'true');
+  const [isProfileFrozen, setIsProfileFrozen] = useState(() => localStorage.getItem(`fairhire_profile_frozen_${userId}`) === 'true');
   const [isRequirementsFrozen, setIsRequirementsFrozen] = useState(() => localStorage.getItem('fairhire_recruiter_requirements_frozen') === 'true');
 
   useEffect(() => {
     const handleStatus = () => {
+      const uid = user?._id || user?.id || 'guest';
       setIsApproved(isInterviewBookingApproved('CAND-8492').approved);
-      setIsProfileFrozen(localStorage.getItem('fairhire_profile_frozen') === 'true');
+      setIsProfileFrozen(localStorage.getItem(`fairhire_profile_frozen_${uid}`) === 'true');
       setIsRequirementsFrozen(localStorage.getItem('fairhire_recruiter_requirements_frozen') === 'true');
     };
 
@@ -54,12 +65,10 @@ const Sidebar = () => {
           { to: '/candidate', label: 'My Dashboard', icon: LayoutDashboard },
           {
             to: '/candidate/profile',
-            label: isProfileFrozen ? 'Profile & Rating' : 'Profile Wizard',
-            icon: isProfileFrozen ? Award : UserCheck,
-            badge: isProfileFrozen ? 'Rated' : null,
-            badgeColor: isProfileFrozen
-              ? 'bg-teal-950/80 text-teal-300 border-teal-700/50'
-              : null
+            label: 'My Profile',
+            icon: UserCheck,
+            badge: null,
+            badgeColor: null
           },
           { to: '/candidate/status', label: 'Application Status', icon: Award },
           {
@@ -107,40 +116,82 @@ const Sidebar = () => {
 
   const navLinks = getNavLinks();
 
+  const handleLinkClick = () => {
+    if (!isPinned && onClose) {
+      onClose();
+    }
+  };
+
   return (
-    <aside className="w-64 bg-navy-900 text-slate-300 flex flex-col justify-between h-screen sticky top-0 z-30 shrink-0 border-r border-navy-800 shadow-xl">
+    <aside
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      className={`w-64 bg-navy-900 text-slate-300 flex flex-col justify-between h-screen fixed top-0 left-0 z-50 shrink-0 border-r border-navy-800 shadow-2xl transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+        isOpen
+          ? 'translate-x-0 opacity-100'
+          : '-translate-x-full opacity-0 pointer-events-none'
+      }`}
+    >
       <div>
         {/* Brand Header */}
-        <div className="p-6 border-b border-navy-800/80 flex flex-col gap-2">
+        <div className="p-5 border-b border-navy-800/80 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src="/assets/logo.jpg" alt="FairHire Logo" className="w-9 h-9 rounded-lg object-contain bg-white p-0.5" />
+            <img src="/assets/logo.jpg" alt="FairHire Logo" className="w-9 h-9 rounded-lg object-contain bg-white p-0.5 shadow-sm" />
             <div>
               <h1 className="text-xl font-extrabold tracking-tight text-white flex items-center gap-1 font-sans">
                 Fair<span className="text-teal-400">Hire</span>
               </h1>
-              <p className="text-[10px] tracking-widest uppercase font-semibold text-teal-400/90">
+              <p className="text-[9px] tracking-widest uppercase font-semibold text-teal-400/90">
                 Fair Process. Right Talent.
               </p>
             </div>
           </div>
+
+          {/* Action buttons: Pin / Close */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={onTogglePin}
+              className={`p-1.5 rounded-lg transition-all text-xs cursor-pointer ${
+                isPinned
+                  ? 'bg-teal-500/20 text-teal-300 border border-teal-500/40 shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-navy-800'
+              }`}
+              title={isPinned ? 'Unpin sidebar (Auto-hide on leave)' : 'Pin sidebar open'}
+              aria-label={isPinned ? 'Unpin sidebar' : 'Pin sidebar open'}
+            >
+              {isPinned ? <Pin className="w-3.5 h-3.5" /> : <PinOff className="w-3.5 h-3.5" />}
+            </button>
+
+            {!isPinned && (
+              <button
+                onClick={onClose}
+                className="p-1.5 text-slate-400 hover:text-white hover:bg-navy-800 rounded-lg transition-all cursor-pointer"
+                title="Close menu"
+                aria-label="Close menu"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* User Role Tag */}
-        <div className="px-6 py-3 bg-navy-950/60 flex items-center justify-between text-xs border-b border-navy-800/40">
+        <div className="px-5 py-2.5 bg-navy-950/60 flex items-center justify-between text-xs border-b border-navy-800/40">
           <span className="text-slate-400 font-medium">Workspace:</span>
-          <span className="font-bold text-teal-400 uppercase tracking-wider text-[11px] bg-teal-950/80 px-2 py-0.5 rounded border border-teal-800/50">
+          <span className="font-bold text-teal-400 uppercase tracking-wider text-[10px] bg-teal-950/80 px-2 py-0.5 rounded border border-teal-800/50">
             {role}
           </span>
         </div>
 
         {/* Navigation Links */}
-        <nav className="p-4 space-y-1.5">
+        <nav className="p-3.5 space-y-1.5 overflow-y-auto max-h-[calc(100vh-210px)]">
           {navLinks.map((link) => {
             const Icon = link.icon;
             return (
               <NavLink
                 key={link.to}
                 to={link.to}
+                onClick={handleLinkClick}
                 end={link.to === '/candidate' || link.to === '/recruiter' || link.to === '/interviewer' || link.to === '/admin'}
                 className={({ isActive }) =>
                   `flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
@@ -191,3 +242,4 @@ const Sidebar = () => {
 };
 
 export default Sidebar;
+

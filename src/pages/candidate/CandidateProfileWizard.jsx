@@ -1,20 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import DashboardLayout from '../../components/layout/DashboardLayout';
-import PageHeader from '../../components/layout/PageHeader';
-import Input from '../../components/common/Input';
-import Checkbox from '../../components/common/Checkbox';
-import Button from '../../components/common/Button';
 import { useAuth } from '../../hooks/useAuth';
-import { useCandidates } from '../../hooks/useCandidates';
-import { DEGREE_OPTIONS } from '../../utils/constants';
+import { DEGREE_OPTIONS, COUNTRY_CODES } from '../../utils/constants';
+import { extractTextFromFile, parseResumeText } from '../../services/resumeParser';
 import {
   CheckCircle2,
   ArrowRight,
-  ArrowLeft,
   Upload,
   FileText,
-  Send,
   Sparkles,
   ShieldCheck,
   Check,
@@ -22,99 +16,303 @@ import {
   GraduationCap,
   Briefcase,
   Target,
-  FileCheck,
-  ChevronRight,
-  Star,
   Award,
-  Lock,
   Unlock,
   Cpu,
-  BarChart3,
-  TrendingUp,
-  Clock,
   Layers,
-  ExternalLink,
   Code2,
-  Compass,
-  AlertCircle,
-  Calendar
+  Calendar,
+  Plus,
+  X,
+  FileUp,
+  RefreshCw,
+  Zap,
+  Globe,
+  Star,
+  CheckCheck,
+  Edit2,
+  MapPin,
+  Phone,
+  Mail,
+  Save,
+  CheckCircle
 } from 'lucide-react';
 
-const STEPS = [
-  { id: 'personal', stepNum: 1, name: 'Personal Information', desc: 'Contact & location details', icon: User },
-  { id: 'education', stepNum: 2, name: 'Educational Background', desc: 'Degree, college & graduation', icon: GraduationCap },
-  { id: 'experience', stepNum: 3, name: 'Experience & Skills', desc: 'Tech stack & career summary', icon: Briefcase },
-  { id: 'target', stepNum: 4, name: 'Target Role Preferences', desc: 'Desired position & work setup', icon: Target },
-  { id: 'resume', stepNum: 5, name: 'Resume Upload', desc: 'Verified PDF or document', icon: FileText },
-  { id: 'consent', stepNum: 6, name: 'Data Privacy & Consent', desc: 'AI screening & compliance', icon: ShieldCheck },
-  { id: 'review', stepNum: 7, name: 'Review & Submit', desc: 'Final dossier confirmation', icon: FileCheck }
+const SUGGESTED_SKILLS = [
+  'React', 'JavaScript', 'TypeScript', 'Node.js', 'Next.js',
+  'Tailwind CSS', 'Python', 'PostgreSQL', 'MongoDB', 'Docker',
+  'AWS', 'GraphQL', 'REST APIs', 'Git', 'Redux', 'Java', 'SQL'
 ];
 
 const CandidateProfileWizard = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { applyCandidate, loading: applyLoading } = useCandidates();
+  const nameInputRef = useRef(null);
 
-  const [currentStep, setCurrentStep] = useState(0);
-  
-  // Persistent freeze state - once completed, stays frozen across page reloads & visits
-  const [isFrozen, setIsFrozen] = useState(() => {
-    return localStorage.getItem('fairhire_profile_frozen') === 'true';
-  });
+  // User-specific localStorage keys — each user has their own saved profile
+  const userId = user?._id || user?.id || 'guest';
+  const profileFrozenKey = `fairhire_profile_frozen_${userId}`;
+  const profileDataKey = `fairhire_frozen_profile_data_${userId}`;
 
-  // Copied token notification state
-  const [copiedToken, setCopiedToken] = useState(false);
+  // Parsing simulation & real extraction state
+  const [isParsing, setIsParsing] = useState(false);
+  const [parsingStep, setParsingStep] = useState(0);
+  const [parseSuccessToast, setParseSuccessToast] = useState(null);
+  const [saveSuccessToast, setSaveSuccessToast] = useState(false);
+  const [newSkillInput, setNewSkillInput] = useState('');
 
-  // Initialize with saved frozen data, authenticated user info, or sensible defaults
+  // Main Form Data State
   const [formData, setFormData] = useState(() => {
+    const uid = user?._id || user?.id || 'guest';
     try {
-      const saved = localStorage.getItem('fairhire_frozen_profile_data');
+      // 1. First priority: saved profile data for THIS user
+      const saved = localStorage.getItem(`fairhire_frozen_profile_data_${uid}`);
       if (saved) {
         return JSON.parse(saved);
       }
     } catch (e) {}
 
+    // 2. Second priority: pending profile data passed from Registration page
+    try {
+      const pending = localStorage.getItem('fairhire_pending_profile_data');
+      if (pending) {
+        const parsed = JSON.parse(pending);
+        const details = user?.profile?.details || {};
+        return {
+          fullName: parsed.fullName || user?.name || '',
+          email: parsed.email || user?.email || '',
+          countryCode: parsed.countryCode || '+91',
+          mobile: parsed.mobile || user?.profile?.mobile || '',
+          location: parsed.location || user?.profile?.location || '',
+          gender: 'Prefer not to say',
+          dob: parsed.dob || '',
+          headline: parsed.headline || '',
+          experienceType: parsed.experienceType || user?.profile?.experienceType || 'experienced',
+          experienceYears: parsed.experienceYears || details.yearsOfExperience || '',
+          currentTitle: parsed.currentTitle || details.currentTitle || '',
+          currentCompany: parsed.currentCompany || details.currentCompany || '',
+          currentCtc: parsed.currentCtc || details.currentCtc || '',
+          noticePeriod: parsed.noticePeriod || details.noticePeriod || '30 Days',
+          summary: parsed.summary || '',
+          degree: parsed.degree || details.degree || "Bachelor's Degree",
+          fieldOfStudy: parsed.fieldOfStudy || details.fieldOfStudy || '',
+          institution: parsed.institution || details.institution || '',
+          graduationYear: parsed.graduationYear || details.graduationYear || '',
+          grade: parsed.grade || '',
+          skills: Array.isArray(parsed.skills) ? parsed.skills : [],
+          projectName: parsed.projectName || '',
+          projectRole: parsed.projectRole || '',
+          projectDesc: parsed.projectDesc || '',
+          projectLink: parsed.portfolioUrl || '',
+          certifications: parsed.certifications || '',
+          targetRole: parsed.targetRole || details.targetRole || '',
+          preferredWorkMode: 'Remote / Hybrid',
+          preferredLocation: parsed.preferredLocation || '',
+          preferredLocations: parsed.preferredLocation || '',
+          expectedSalary: parsed.expectedSalary || details.expectedCtc || '',
+          jobType: 'Permanent',
+          employmentType: 'Full-time',
+          preferredRole: parsed.targetRole || details.targetRole || '',
+          linkedinUrl: parsed.linkedinUrl || '',
+          portfolioUrl: parsed.portfolioUrl || '',
+          resumeFileName: parsed.resumeFileName || '',
+          consentDataProcessing: true,
+          consentAiScreening: true
+        };
+      }
+    } catch (e) {}
+
+    // 3. Fallback: blank form with user account defaults
     const details = user?.profile?.details || {};
     return {
-      fullName: user?.name || 'Alex Morgan',
-      email: user?.email || 'alex.morgan@gmail.com',
-      mobile: user?.profile?.mobile || '+91 9876543210',
-      location: user?.profile?.location || 'Mumbai, India',
+      fullName: user?.name || '',
+      email: user?.email || '',
+      countryCode: '+91',
+      mobile: user?.profile?.mobile || '',
+      location: user?.profile?.location || '',
+      gender: 'Prefer not to say',
+      dob: '',
+      headline: '',
+      experienceType: user?.profile?.experienceType || 'experienced',
+      experienceYears: details.yearsOfExperience || '',
+      currentTitle: details.currentTitle || '',
+      currentCompany: details.currentCompany || '',
+      currentCtc: details.currentCtc || '',
+      noticePeriod: details.noticePeriod || '30 Days',
+      summary: '',
       degree: details.degree || "Bachelor's Degree",
-      institution: details.institution || 'IIT Bombay',
-      fieldOfStudy: details.fieldOfStudy || 'Computer Science & Engineering',
-      graduationYear: details.graduationYear || '2025',
-      experienceYears: details.yearsOfExperience || (user?.profile?.experienceType === 'fresher' ? '0 (Fresher)' : '3 years'),
-      currentTitle: details.currentTitle || (user?.profile?.experienceType === 'fresher' ? 'Student / Fresher' : 'Frontend Engineer'),
-      currentCompany: details.currentCompany || (user?.profile?.experienceType === 'fresher' ? 'None (Fresher)' : 'TechCorp'),
-      skills: details.primarySkills || 'React, JavaScript, Node.js, Tailwind CSS',
-      summary: 'Passionate software engineer focused on building clean, performant, and scalable web applications.',
-      targetRole: details.targetRole || 'Full Stack Software Engineer',
-      preferredLocation: 'Remote / Hybrid',
-      expectedSalary: details.expectedCtc || '$110,000 / yr',
-      resumeFileName: 'Alex_Morgan_Resume.pdf',
+      fieldOfStudy: details.fieldOfStudy || '',
+      institution: details.institution || '',
+      graduationYear: details.graduationYear || '',
+      grade: '',
+      skills: [],
+      projectName: '',
+      projectRole: '',
+      projectDesc: '',
+      projectLink: '',
+      certifications: '',
+      targetRole: details.targetRole || '',
+      preferredWorkMode: 'Remote / Hybrid',
+      preferredLocation: '',
+      preferredLocations: '',
+      expectedSalary: details.expectedCtc || '',
+      jobType: 'Permanent',
+      employmentType: 'Full-time',
+      preferredRole: details.targetRole || '',
+      linkedinUrl: '',
+      portfolioUrl: '',
+      resumeFileName: '',
       consentDataProcessing: true,
       consentAiScreening: true
     };
   });
 
-  // Sync state if other tabs or events update profile
-  useEffect(() => {
-    const handleProfileUpdate = () => {
-      setIsFrozen(localStorage.getItem('fairhire_profile_frozen') === 'true');
-      try {
-        const saved = localStorage.getItem('fairhire_frozen_profile_data');
-        if (saved) setFormData(JSON.parse(saved));
-      } catch (e) {}
-    };
+  // Track fields that were populated via AI Resume Extraction
+  const [autoFilledFields, setAutoFilledFields] = useState({});
 
-    window.addEventListener('fairhire_profile_updated', handleProfileUpdate);
-    window.addEventListener('storage', handleProfileUpdate);
-    return () => {
-      window.removeEventListener('fairhire_profile_updated', handleProfileUpdate);
-      window.removeEventListener('storage', handleProfileUpdate);
-    };
-  }, []);
+  // Sync state if user context loads later
+  useEffect(() => {
+    if (user && (!formData.fullName || formData.fullName === 'Candidate')) {
+      const uid = user?._id || user?.id || 'guest';
+      const saved = localStorage.getItem(`fairhire_frozen_profile_data_${uid}`);
+      if (saved) {
+        try {
+          setFormData(JSON.parse(saved));
+          return;
+        } catch (e) {}
+      }
+      setFormData(prev => ({
+        ...prev,
+        fullName: prev.fullName || user.name || '',
+        email: prev.email || user.email || '',
+        mobile: prev.mobile || user.profile?.mobile || '',
+        location: prev.location || user.profile?.location || ''
+      }));
+    }
+  }, [user]);
+
+  // Real resume file upload & parser
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsParsing(true);
+    setParsingStep(1);
+
+    try {
+      setTimeout(() => setParsingStep(2), 300);
+      setTimeout(() => setParsingStep(3), 600);
+      setTimeout(() => setParsingStep(4), 900);
+
+      const rawText = await extractTextFromFile(file);
+      const parsed = parseResumeText(rawText);
+
+      setTimeout(() => {
+        setIsParsing(false);
+        const autoMap = {};
+
+        setFormData(prev => {
+          const updated = { ...prev, resumeFileName: file.name };
+
+          if (parsed.fullName) {
+            updated.fullName = parsed.fullName;
+            autoMap.fullName = true;
+          }
+          if (parsed.email) {
+            updated.email = parsed.email;
+            autoMap.email = true;
+          }
+          if (parsed.mobile) {
+            updated.mobile = parsed.mobile;
+            autoMap.mobile = true;
+          }
+          if (parsed.location) {
+            updated.location = parsed.location;
+            autoMap.location = true;
+          }
+          if (parsed.headline) {
+            updated.headline = parsed.headline;
+            autoMap.headline = true;
+          }
+          if (parsed.summary) {
+            updated.summary = parsed.summary;
+            autoMap.summary = true;
+          }
+          if (parsed.skills && parsed.skills.length > 0) {
+            const existingSkills = Array.isArray(prev.skills) ? prev.skills : [];
+            const merged = Array.from(new Set([...existingSkills, ...parsed.skills]));
+            updated.skills = merged;
+            autoMap.skills = true;
+          }
+          if (parsed.currentTitle) {
+            updated.currentTitle = parsed.currentTitle;
+            autoMap.currentTitle = true;
+          }
+          if (parsed.currentCompany) {
+            updated.currentCompany = parsed.currentCompany;
+            autoMap.currentCompany = true;
+          }
+          if (parsed.experienceYears) {
+            updated.experienceYears = parsed.experienceYears;
+            autoMap.experienceYears = true;
+          }
+          if (parsed.institution) {
+            updated.institution = parsed.institution;
+            autoMap.institution = true;
+          }
+          if (parsed.degree) {
+            updated.degree = parsed.degree;
+            autoMap.degree = true;
+          }
+          if (parsed.fieldOfStudy) {
+            updated.fieldOfStudy = parsed.fieldOfStudy;
+            autoMap.fieldOfStudy = true;
+          }
+          if (parsed.graduationYear) {
+            updated.graduationYear = parsed.graduationYear;
+            autoMap.graduationYear = true;
+          }
+          if (parsed.grade) {
+            updated.grade = parsed.grade;
+            autoMap.grade = true;
+          }
+          if (parsed.projectName) {
+            updated.projectName = parsed.projectName;
+            autoMap.projectName = true;
+          }
+          if (parsed.projectRole) {
+            updated.projectRole = parsed.projectRole;
+            autoMap.projectRole = true;
+          }
+          if (parsed.targetRole) {
+            updated.targetRole = parsed.targetRole;
+            autoMap.targetRole = true;
+          }
+
+          return updated;
+        });
+
+        setAutoFilledFields(autoMap);
+        setParseSuccessToast({
+          fileName: file.name,
+          skillsCount: parsed.skills?.length || 0,
+          name: parsed.fullName
+        });
+
+        setTimeout(() => {
+          setParseSuccessToast(null);
+        }, 8000);
+      }, 1200);
+
+    } catch (err) {
+      console.error('Error parsing resume:', err);
+      setIsParsing(false);
+      setFormData(prev => ({
+        ...prev,
+        resumeFileName: file.name
+      }));
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -124,1197 +322,772 @@ const CandidateProfileWizard = () => {
     }));
   };
 
-  // Check if a step has fields filled to display completed checkmark badge
-  const isStepFilled = (stepIndex) => {
-    switch (stepIndex) {
-      case 0:
-        return Boolean(formData.fullName?.trim() && formData.email?.trim());
-      case 1:
-        return Boolean(formData.institution?.trim() || formData.degree?.trim());
-      case 2:
-        return Boolean(formData.skills?.trim() || formData.currentTitle?.trim());
-      case 3:
-        return Boolean(formData.targetRole?.trim() || formData.preferredLocation?.trim());
-      case 4:
-        return Boolean(formData.resumeFileName?.trim());
-      case 5:
-        return Boolean(formData.consentDataProcessing && formData.consentAiScreening);
-      case 6:
-        return true;
-      default:
-        return false;
-    }
-  };
+  const handleAddSkill = (skillToAdd) => {
+    const skill = (skillToAdd || newSkillInput).trim();
+    if (!skill) return;
 
-  const nextStep = () => {
-    if (currentStep < STEPS.length - 1) {
-      setCurrentStep(prev => prev + 1);
-      window.scrollTo({ top: 120, behavior: 'smooth' });
-    }
-  };
-
-  const prevStep = () => {
-    if (currentStep > 0) {
-      setCurrentStep(prev => prev - 1);
-      window.scrollTo({ top: 120, behavior: 'smooth' });
-    }
-  };
-
-  const handleSimulateResumeUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setFormData(prev => ({ ...prev, resumeFileName: file.name }));
-    } else {
+    const currentSkills = Array.isArray(formData.skills) ? formData.skills : [];
+    if (!currentSkills.some(s => s.toLowerCase() === skill.toLowerCase())) {
       setFormData(prev => ({
         ...prev,
-        resumeFileName: `${(formData.fullName || 'Candidate').replace(/\s+/g, '_')}_Resume.pdf`
+        skills: [...currentSkills, skill]
       }));
     }
+    setNewSkillInput('');
   };
+
+  const handleRemoveSkill = (skillToRemove) => {
+    const currentSkills = Array.isArray(formData.skills) ? formData.skills : [];
+    setFormData(prev => ({
+      ...prev,
+      skills: currentSkills.filter(s => s !== skillToRemove)
+    }));
+  };
+
+  // Profile Completeness Calculator (Naukri style)
+  const calculateCompleteness = () => {
+    let score = 20; // base score for basic registration
+    if (formData.fullName?.trim()) score += 10;
+    if (formData.email?.trim()) score += 10;
+    if (formData.mobile?.trim()) score += 10;
+    if (formData.location?.trim()) score += 10;
+    if (formData.headline?.trim() || formData.summary?.trim()) score += 10;
+    if (formData.institution?.trim() && formData.degree?.trim()) score += 15;
+    if (formData.skills && (Array.isArray(formData.skills) ? formData.skills.length > 0 : formData.skills.trim())) score += 15;
+    if (formData.currentTitle?.trim() || formData.experienceYears) score += 10;
+    if (formData.targetRole?.trim()) score += 5;
+    if (formData.resumeFileName?.trim()) score += 5;
+    return Math.min(100, score);
+  };
+
+  const completeness = calculateCompleteness();
 
   const handleSubmitProfile = async () => {
+    const skillsList = Array.isArray(formData.skills)
+      ? formData.skills
+      : (typeof formData.skills === 'string' ? formData.skills.split(',').map(s => s.trim()).filter(Boolean) : []);
+
     const payload = {
       ...formData,
-      skills: typeof formData.skills === 'string'
-        ? formData.skills.split(',').map(s => s.trim()).filter(Boolean)
-        : formData.skills
+      skills: skillsList
     };
 
-    // 1. Permanently freeze the profile in localStorage
-    localStorage.setItem('fairhire_profile_frozen', 'true');
-    localStorage.setItem('fairhire_frozen_profile_data', JSON.stringify(formData));
+    localStorage.setItem(profileFrozenKey, 'true');
+    localStorage.setItem(profileDataKey, JSON.stringify(payload));
 
-    // 2. Dispatch event for sidebar and other components to reflect frozen rating state
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('fairhire_profile_updated', {
-        detail: { isFrozen: true, formData }
+        detail: { isFrozen: true, formData: payload }
       }));
     }
 
-    setIsFrozen(true);
-    // Profile is verified & frozen. Candidate enters pipeline only when they apply for a live job position.
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setSaveSuccessToast(true);
+    setTimeout(() => {
+      setSaveSuccessToast(false);
+    }, 4000);
   };
 
-  const handleUnfreezeProfile = () => {
-    localStorage.setItem('fairhire_profile_frozen', 'false');
-    setIsFrozen(false);
-    setCurrentStep(0);
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('fairhire_profile_updated', {
-        detail: { isFrozen: false }
-      }));
+  const scrollToSection = (id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const copyBlindToken = () => {
-    navigator.clipboard?.writeText('FH-8492-EEOC');
-    setCopiedToken(true);
-    setTimeout(() => setCopiedToken(false), 2500);
+  const handleEditNameClick = () => {
+    scrollToSection('section-personal');
+    setTimeout(() => {
+      if (nameInputRef.current) {
+        nameInputRef.current.focus();
+      }
+    }, 400);
   };
 
-  // =========================================================================
-  // ================= FROZEN PROFILE RATING & DOSSIER VIEW ===================
-  // =========================================================================
-  if (isFrozen) {
-    return (
-      <DashboardLayout>
-        {/* Page Header */}
-        <PageHeader
-          title="Candidate Profile Rating & Verified Dossier"
-          subtitle="Your profile is frozen and cryptographically sealed for EEOC Blind Screening. Telemetry is active across FairHire matching models."
-          actions={
-            <div className="flex items-center gap-2.5">
-              <button
-                type="button"
-                onClick={handleUnfreezeProfile}
-                className="px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
-                title="Unlock profile to edit details (Demo Mode)"
-              >
-                <Unlock className="w-3.5 h-3.5 text-amber-500" />
-                <span>Unfreeze Profile (Edit)</span>
-              </button>
-
-              <Link
-                to="/candidate"
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-navy-900 hover:bg-navy-800 text-white transition-all flex items-center gap-1.5 shadow-xs"
-              >
-                <Briefcase className="w-3.5 h-3.5 text-teal-400" />
-                <span>Explore Matched Jobs</span>
-              </Link>
-            </div>
-          }
-        />
-
-        <div className="space-y-6 max-w-6xl mx-auto pb-12">
-
-          {/* 2. Hero Profile Rating Scorecard */}
-          <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-lg">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-              
-              {/* Left Column: Big Circular Rating Badge */}
-              <div className="lg:col-span-4 flex flex-col items-center justify-center text-center p-6 rounded-3xl bg-gradient-to-b from-navy-950 to-navy-900 text-white relative shadow-xl border border-navy-800">
-                <div className="absolute top-3 right-3 text-teal-400">
-                  <Sparkles className="w-5 h-5 opacity-75" />
-                </div>
-
-                <span className="text-[11px] uppercase tracking-widest font-bold text-teal-300 mb-2">
-                  FairHire Profile Rating
-                </span>
-
-                {/* Main Numerical Rating Indicator */}
-                <div className="relative my-2 flex items-baseline justify-center">
-                  <span className="text-6xl sm:text-7xl font-black tracking-tight text-white drop-shadow-sm">
-                    9.4
-                  </span>
-                  <span className="text-2xl font-bold text-teal-400 ml-1">/ 10</span>
-                </div>
-
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/40 text-xs font-extrabold mb-3">
-                  <Award className="w-3.5 h-3.5 text-teal-400" />
-                  Tier-1 Exceptional Candidate
-                </div>
-
-                <p className="text-xs text-slate-300 leading-relaxed max-w-xs">
-                  Scores in the <strong className="text-white">top 4%</strong> of 1,280+ benchmarked full stack applicants based on technical depth and foundational rigor.
-                </p>
-
-                <div className="mt-4 pt-4 border-t border-navy-800/80 w-full flex items-center justify-between text-[11px] text-slate-300">
-                  <span>Match Confidence:</span>
-                  <strong className="text-emerald-400 font-bold">98.2% High</strong>
-                </div>
-              </div>
-
-              {/* Right Column: Multi-Metric Impact Snapshot */}
-              <div className="lg:col-span-8 space-y-4">
-                <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
-                  <div>
-                    <h3 className="text-lg font-black text-navy-900 tracking-tight">
-                      Contextual AI Telemetry & Merit Index
-                    </h3>
-                    <p className="text-xs text-slate-500">
-                      Calculated across 5 audited objective dimensions without demographic data leakage.
-                    </p>
-                  </div>
-                  <span className="text-xs font-bold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200">
-                    Live Scorecard
-                  </span>
-                </div>
-
-                {/* 3 High-Impact Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 flex flex-col justify-between">
-                    <span className="text-[10px] uppercase font-bold text-slate-500">
-                      Role Semantic Alignment
-                    </span>
-                    <div className="flex items-baseline gap-1 my-1">
-                      <strong className="text-2xl font-black text-navy-900">96%</strong>
-                      <span className="text-xs text-emerald-600 font-bold">↑ High</span>
-                    </div>
-                    <span className="text-[11px] text-slate-500">
-                      Matches {formData.targetRole || 'Full Stack Engineer'} criteria
-                    </span>
-                  </div>
-
-                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 flex flex-col justify-between">
-                    <span className="text-[10px] uppercase font-bold text-slate-500">
-                      EEOC Anti-Bias Score
-                    </span>
-                    <div className="flex items-baseline gap-1 my-1">
-                      <strong className="text-2xl font-black text-navy-900">100%</strong>
-                      <span className="text-xs text-teal-600 font-bold">Zero Drift</span>
-                    </div>
-                    <span className="text-[11px] text-slate-500">
-                      4/5ths Adverse Rule passed perfectly
-                    </span>
-                  </div>
-
-                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 flex flex-col justify-between">
-                    <span className="text-[10px] uppercase font-bold text-slate-500">
-                      Assessed Engineering Tier
-                    </span>
-                    <div className="flex items-baseline gap-1 my-1">
-                      <strong className="text-2xl font-black text-navy-900">Level 4</strong>
-                      <span className="text-xs text-sky-600 font-bold">Mid-Senior</span>
-                    </div>
-                    <span className="text-[11px] text-slate-500">
-                      Architecture & component scale ready
-                    </span>
-                  </div>
-                </div>
-
-                {/* AI Executive Assessment Callout */}
-                <div className="p-4 rounded-2xl bg-gradient-to-r from-teal-50/80 to-sky-50/80 border border-teal-200/70 text-xs text-slate-700 leading-relaxed flex items-start gap-3">
-                  <Cpu className="w-5 h-5 text-teal-600 shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="text-navy-900 font-bold block mb-0.5">
-                      FairHire AI Rationale:
-                    </strong>
-                    <span>
-                      Applicant demonstrates robust proficiency in modern JavaScript/TypeScript paradigms, modular React component design, and core algorithmic problem solving. Educational background at <strong>{formData.institution || 'Accredited Institution'}</strong> provides high foundational rigor for production-grade engineering roles.
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-            </div>
-          </div>
-
-          {/* 3. Dimensional Competency Rating Matrix */}
-          <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4">
-              <div>
-                <span className="text-[11px] uppercase font-bold tracking-wider text-teal-600 block">
-                  Detailed Rubric Scoring
-                </span>
-                <h3 className="text-xl font-extrabold text-navy-900 tracking-tight">
-                  5-Dimensional Profile Competency Matrix
-                </h3>
-              </div>
-              <span className="text-xs font-semibold text-slate-500">
-                Audited against FairHire Core Engineering Rubrics
-              </span>
-            </div>
-
-            <div className="space-y-4">
-              
-              {/* Dimension 1: Technical Stack Mastery */}
-              <div className="p-4 sm:p-5 rounded-2xl bg-slate-50/80 border border-slate-200 transition-all hover:border-teal-300">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center font-bold text-xs">
-                      1
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-navy-900">
-                        Technical Stack Proficiency & Modern Tooling
-                      </h4>
-                      <p className="text-[11px] text-slate-500">
-                        Evaluated against React, JavaScript, Node.js, and API architecture
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
-                      Grade A+
-                    </span>
-                    <span className="text-sm font-black text-navy-900">9.6 / 10</span>
-                  </div>
-                </div>
-
-                {/* Progress Bar */}
-                <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden mb-2.5">
-                  <div className="h-full bg-gradient-to-r from-teal-500 to-emerald-500 rounded-full" style={{ width: '96%' }} />
-                </div>
-
-                <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                  <span className="text-[10px] font-bold text-slate-400 mr-1">Verified Skills:</span>
-                  {(typeof formData.skills === 'string' ? formData.skills.split(',') : (formData.skills || ['React', 'JavaScript'])).map((skill, sIdx) => (
-                    <span key={sIdx} className="px-2 py-0.5 rounded-lg bg-white border border-slate-200 text-[11px] font-semibold text-slate-700 shadow-2xs">
-                      {typeof skill === 'string' ? skill.trim() : skill}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* Dimension 2: Educational Rigor */}
-              <div className="p-4 sm:p-5 rounded-2xl bg-slate-50/80 border border-slate-200 transition-all hover:border-teal-300">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-xs">
-                      2
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-navy-900">
-                        Educational Rigor & Computer Science Foundation
-                      </h4>
-                      <p className="text-[11px] text-slate-500">
-                        {formData.institution || 'IIT Bombay'} • {formData.degree} ({formData.fieldOfStudy || 'CS'})
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
-                      Grade A+
-                    </span>
-                    <span className="text-sm font-black text-navy-900">9.2 / 10</span>
-                  </div>
-                </div>
-
-                {/* Progress Bar */}
-                <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden mb-2.5">
-                  <div className="h-full bg-gradient-to-r from-sky-500 to-teal-500 rounded-full" style={{ width: '92%' }} />
-                </div>
-
-                <p className="text-[11px] text-slate-600 leading-relaxed">
-                  Demonstrates verified theoretical grounding in Data Structures & Algorithms, Systems Programming, and Object-Oriented Software Design.
-                </p>
-              </div>
-
-              {/* Dimension 3: System Architecture & Scalability */}
-              <div className="p-4 sm:p-5 rounded-2xl bg-slate-50/80 border border-slate-200 transition-all hover:border-teal-300">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs">
-                      3
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-navy-900">
-                        System Architecture & Scalable Component Design
-                      </h4>
-                      <p className="text-[11px] text-slate-500">
-                        Modular design, client-server integration, state management, and performance
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
-                      Grade A
-                    </span>
-                    <span className="text-sm font-black text-navy-900">9.0 / 10</span>
-                  </div>
-                </div>
-
-                {/* Progress Bar */}
-                <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden mb-2.5">
-                  <div className="h-full bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full" style={{ width: '90%' }} />
-                </div>
-
-                <p className="text-[11px] text-slate-600 leading-relaxed">
-                  Exhibits clear mental models for breaking complex UX requirements into decoupled, testable components with minimal rendering overhead.
-                </p>
-              </div>
-
-              {/* Dimension 4: EEOC Blind Anti-Bias Compliance */}
-              <div className="p-4 sm:p-5 rounded-2xl bg-slate-50/80 border border-slate-200 transition-all hover:border-teal-300">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs">
-                      4
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-navy-900">
-                        EEOC Blind Screening & Adverse Impact Compliance
-                      </h4>
-                      <p className="text-[11px] text-slate-500">
-                        Demographic markers completely decoupled from technical scoring
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-teal-100 text-teal-800">
-                      Perfect Parity
-                    </span>
-                    <span className="text-sm font-black text-navy-900">10.0 / 10</span>
-                  </div>
-                </div>
-
-                {/* Progress Bar */}
-                <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden mb-2.5">
-                  <div className="h-full bg-teal-500 rounded-full" style={{ width: '100%' }} />
-                </div>
-
-                <p className="text-[11px] text-slate-600 leading-relaxed">
-                  All evaluations proceed via anonymized token <strong>#FH-8492-EEOC</strong>. Hiring teams cannot view gender, ethnicity, or age during the screening and assessment phases.
-                </p>
-              </div>
-
-              {/* Dimension 5: Portfolio & Resume Completeness */}
-              <div className="p-4 sm:p-5 rounded-2xl bg-slate-50/80 border border-slate-200 transition-all hover:border-teal-300">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
-                      5
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-navy-900">
-                        Dossier Verification & Vectorized Resume Completeness
-                      </h4>
-                      <p className="text-[11px] text-slate-500">
-                        Verified document: {formData.resumeFileName || 'Candidate_Resume.pdf'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
-                      Grade A
-                    </span>
-                    <span className="text-sm font-black text-navy-900">9.5 / 10</span>
-                  </div>
-                </div>
-
-                {/* Progress Bar */}
-                <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden mb-2.5">
-                  <div className="h-full bg-gradient-to-r from-amber-500 to-emerald-500 rounded-full" style={{ width: '95%' }} />
-                </div>
-
-                <p className="text-[11px] text-slate-600 leading-relaxed">
-                  Document fully vectorized. Semantic keywords and experience timeline confirmed with zero conflicting discrepancies.
-                </p>
-              </div>
-
-            </div>
-          </div>
-
-          {/* 4. Target Role Suitability Matrix & Key Strengths */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            
-            {/* Left: Role Suitability Scores */}
-            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm space-y-4">
-              <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
-                <div>
-                  <h4 className="text-base font-extrabold text-navy-900">
-                    Role Suitability Breakdown
-                  </h4>
-                  <p className="text-xs text-slate-500">
-                    Calculated against live FairHire open engineering tracks
-                  </p>
-                </div>
-                <Compass className="w-5 h-5 text-teal-500" />
-              </div>
-
-              <div className="space-y-3">
-                <div className="p-3.5 rounded-2xl bg-teal-50/60 border border-teal-200/80 flex items-center justify-between">
-                  <div>
-                    <strong className="text-xs font-bold text-navy-900 block">
-                      Full Stack Software Engineer
-                    </strong>
-                    <span className="text-[10px] text-teal-700 font-semibold">
-                      ★ Recommended Highest Fit
-                    </span>
-                  </div>
-                  <span className="text-sm font-black text-teal-700 bg-white px-2.5 py-1 rounded-xl border border-teal-200 shadow-2xs">
-                    96% Match
-                  </span>
-                </div>
-
-                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
-                  <div>
-                    <strong className="text-xs font-bold text-navy-900 block">
-                      Frontend Engineer (React / Next.js)
-                    </strong>
-                    <span className="text-[10px] text-slate-500">
-                      High UI & State architecture match
-                    </span>
-                  </div>
-                  <span className="text-sm font-black text-slate-700 bg-white px-2.5 py-1 rounded-xl border border-slate-200 shadow-2xs">
-                    94% Match
-                  </span>
-                </div>
-
-                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
-                  <div>
-                    <strong className="text-xs font-bold text-navy-900 block">
-                      Backend Engineer (Node / APIs)
-                    </strong>
-                    <span className="text-[10px] text-slate-500">
-                      Solid REST & Database fundamentals
-                    </span>
-                  </div>
-                  <span className="text-sm font-black text-slate-700 bg-white px-2.5 py-1 rounded-xl border border-slate-200 shadow-2xs">
-                    89% Match
-                  </span>
-                </div>
-
-                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
-                  <div>
-                    <strong className="text-xs font-bold text-navy-900 block">
-                      DevOps & Cloud Infrastructure
-                    </strong>
-                    <span className="text-[10px] text-slate-500">
-                      Basic CI/CD & Deployment coverage
-                    </span>
-                  </div>
-                  <span className="text-sm font-black text-slate-700 bg-white px-2.5 py-1 rounded-xl border border-slate-200 shadow-2xs">
-                    81% Match
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Right: AI Strengths & Verification Badges */}
-            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm space-y-4 flex flex-col justify-between">
-              <div>
-                <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
-                  <div>
-                    <h4 className="text-base font-extrabold text-navy-900">
-                      Key AI Strengths & Badges
-                    </h4>
-                    <p className="text-xs text-slate-500">
-                      Demonstrated competencies extracted from verified submission
-                    </p>
-                  </div>
-                  <Sparkles className="w-5 h-5 text-amber-500" />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2.5 mt-4">
-                  <div className="p-3 rounded-2xl bg-emerald-50/70 border border-emerald-200/80 text-xs">
-                    <span className="font-bold text-emerald-900 block">Modern React Fluency</span>
-                    <span className="text-[10px] text-emerald-700">Hooks, Context & Performance</span>
-                  </div>
-
-                  <div className="p-3 rounded-2xl bg-sky-50/70 border border-sky-200/80 text-xs">
-                    <span className="font-bold text-sky-900 block">System Architecture</span>
-                    <span className="text-[10px] text-sky-700">Clean modular component hierarchy</span>
-                  </div>
-
-                  <div className="p-3 rounded-2xl bg-purple-50/70 border border-purple-200/80 text-xs">
-                    <span className="font-bold text-purple-900 block">Foundational Rigor</span>
-                    <span className="text-[10px] text-purple-700">CS algorithms & problem solving</span>
-                  </div>
-
-                  <div className="p-3 rounded-2xl bg-amber-50/70 border border-amber-200/80 text-xs">
-                    <span className="font-bold text-amber-900 block">EEOC Blind Verified</span>
-                    <span className="text-[10px] text-amber-700">Zero demographic bias exposure</span>
-                  </div>
-                </div>
-
-                <div className="mt-4 p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-600 leading-relaxed">
-                  💡 <strong>Next Step Recommendation:</strong> Visit the <Link to="/candidate" className="text-teal-600 font-bold hover:underline">Software Engineering Preparation Guide</Link> on your dashboard to review live technical interview questions for your 4 target rounds.
-                </div>
-              </div>
-
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-                <span>Verification Authority:</span>
-                <span className="font-bold text-navy-900">FairHire Audit Engine v2.4</span>
-              </div>
-            </div>
-
-          </div>
-
-          {/* 5. Frozen Verified Dossier (Read-Only) */}
-          <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-              <div>
-                <span className="text-[11px] uppercase font-bold tracking-wider text-slate-400 block">
-                  Archived Submission
-                </span>
-                <h3 className="text-xl font-extrabold text-navy-900 tracking-tight">
-                  Frozen Candidate Credentials Dossier
-                </h3>
-              </div>
-              <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200 flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Read-Only Record
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-              
-              {/* Applicant Info */}
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90 space-y-1">
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">Applicant Details</span>
-                <strong className="text-navy-900 font-bold text-sm block">{formData.fullName}</strong>
-                <p className="text-slate-600">{formData.email}</p>
-                <p className="text-slate-500">{formData.mobile}</p>
-                <p className="text-slate-500">{formData.location}</p>
-              </div>
-
-              {/* Education */}
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90 space-y-1">
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">Education Credentials</span>
-                <strong className="text-navy-900 font-bold text-sm block">{formData.degree}</strong>
-                <p className="text-slate-600">{formData.institution}</p>
-                <p className="text-slate-500">{formData.fieldOfStudy}</p>
-                <p className="text-slate-500">Graduation: {formData.graduationYear}</p>
-              </div>
-
-              {/* Experience */}
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90 space-y-1">
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">Experience & Stack</span>
-                <strong className="text-navy-900 font-bold text-sm block">{formData.currentTitle}</strong>
-                <p className="text-slate-600">{formData.currentCompany} • {formData.experienceYears}</p>
-                <p className="text-teal-700 font-semibold truncate mt-1">
-                  {formData.skills}
-                </p>
-              </div>
-
-              {/* Target & Resume */}
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90 space-y-1">
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">Target Role & Resume</span>
-                <strong className="text-navy-900 font-bold text-sm block">{formData.targetRole}</strong>
-                <p className="text-slate-600">{formData.preferredLocation} • {formData.expectedSalary}</p>
-                <div className="flex items-center gap-1 text-emerald-700 font-semibold mt-1 truncate">
-                  <FileText className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{formData.resumeFileName}</span>
-                </div>
-              </div>
-
-            </div>
-          </div>
-
-          {/* 6. Quick Action Navigation Bar */}
-          <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-md flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center shrink-0 border border-teal-200">
-                <Award className="w-5 h-5" />
-              </div>
-              <div>
-                <h5 className="text-sm font-bold text-navy-900">
-                  Ready to Advance in Pipeline?
-                </h5>
-                <p className="text-xs text-slate-500">
-                  Track your live application status or book an approved interview slot.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
-              <Link
-                to="/candidate/status"
-                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-600 text-white text-xs font-bold shadow-sm transition-all flex items-center justify-center gap-1.5"
-              >
-                <span>Application Status</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </Link>
-              
-              <Link
-                to="/candidate/interview"
-                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all flex items-center justify-center gap-1.5"
-              >
-                <Calendar className="w-3.5 h-3.5" />
-                <span>Interview Booking</span>
-              </Link>
-
-              <button
-                type="button"
-                onClick={handleUnfreezeProfile}
-                className="flex-1 sm:flex-none px-3.5 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-600 text-xs font-semibold transition-all flex items-center justify-center gap-1 cursor-pointer"
-              >
-                <Unlock className="w-3 h-3 text-amber-500" />
-                <span>Edit Profile</span>
-              </button>
-            </div>
-          </div>
-
-        </div>
-      </DashboardLayout>
-    );
-  }
-
-  // =========================================================================
-  // ================= MAIN EDITABLE VERTICAL WIZARD LAYOUT ==================
-  // =========================================================================
   return (
     <DashboardLayout>
-      <PageHeader
-        title="Candidate Profile Wizard"
-        subtitle="Complete your profile step by step. Once submitted, your profile will freeze for verified EEOC Blind Screening."
-      />
-
-      {/* Two-Column Vertical Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start max-w-6xl mx-auto">
+      <div className="max-w-[1200px] mx-auto pb-28 px-4 sm:px-6">
         
-        {/* Left Column: Vertical Stepper Navigation */}
-        <aside className="lg:col-span-4 bg-white rounded-3xl border border-slate-200 p-5 shadow-sm sticky top-24">
-          <div className="mb-4 pb-3 border-b border-slate-100 flex items-center justify-between">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Wizard Progression
-            </h4>
-            <span className="text-xs font-bold text-teal-600 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
-              Step {currentStep + 1} of {STEPS.length}
-            </span>
-          </div>
+        {/* ========================================================================= */}
+        {/* TOP SUMMARY CARD (Naukri Style)                                            */}
+        {/* ========================================================================= */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm mb-6 flex flex-col md:flex-row gap-8 relative overflow-hidden mt-6">
+          {/* Left: Avatar & Info */}
+          <div className="flex flex-col sm:flex-row gap-6 flex-1 items-center sm:items-start">
+            {/* Avatar */}
+            <div className="relative shrink-0">
+              <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-4 border-slate-50 bg-slate-100 flex items-center justify-center shadow-inner relative z-10">
+                <User className="w-12 h-12 sm:w-16 sm:h-16 text-slate-300" />
+              </div>
+              <svg className="absolute -top-2 -left-2 w-28 h-28 sm:w-36 sm:h-36 -rotate-90 z-0" viewBox="0 0 36 36">
+                <path className="text-slate-100" strokeWidth="2" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                <path className="text-rose-500 transition-all duration-700 ease-out" strokeDasharray={`${completeness}, 100`} strokeWidth="2" strokeLinecap="round" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+              </svg>
+              <div className="absolute -bottom-2 sm:-bottom-3 left-1/2 -translate-x-1/2 bg-white px-2 py-0.5 rounded-full border border-slate-200 text-[10px] font-bold text-rose-600 z-20 shadow-sm">
+                {completeness}%
+              </div>
+            </div>
 
-          <nav className="space-y-2">
-            {STEPS.map((step, idx) => {
-              const isCurrent = idx === currentStep;
-              const isDone = isStepFilled(idx);
-              const Icon = step.icon;
+            {/* Info details */}
+            <div className="space-y-4 text-center sm:text-left mt-2 sm:mt-0">
+              <div>
+                <h1 className="text-xl sm:text-2xl font-black text-slate-900 flex items-center justify-center sm:justify-start gap-2">
+                  {formData.fullName || 'Candidate Name'}
+                  <button 
+                    onClick={handleEditNameClick}
+                    title="Edit Name & Contact"
+                    className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-blue-600 transition-colors cursor-pointer"
+                  >
+                    <Edit2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  </button>
+                </h1>
+                <p className="text-[10px] sm:text-[11px] text-slate-500 mt-1">
+                  {formData.headline || (formData.currentTitle ? `${formData.currentTitle} at ${formData.currentCompany || 'Tech'}` : 'Profile last updated - Just now')}
+                </p>
+              </div>
 
-              return (
-                <button
-                  key={step.id}
-                  type="button"
-                  onClick={() => setCurrentStep(idx)}
-                  className={`w-full text-left p-3 rounded-2xl transition-all flex items-center justify-between gap-3 group ${
-                    isCurrent
-                      ? 'bg-navy-900 text-white shadow-md ring-2 ring-navy-800'
-                      : isDone
-                      ? 'bg-emerald-50/70 text-slate-800 hover:bg-emerald-100/70 border border-emerald-200/80'
-                      : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200/60'
-                  }`}
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div
-                      className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-xs font-bold transition-colors ${
-                        isCurrent
-                          ? 'bg-teal-400 text-navy-900'
-                          : isDone
-                          ? 'bg-emerald-600 text-white'
-                          : 'bg-slate-200 text-slate-600'
-                      }`}
-                    >
-                      {isDone && !isCurrent ? <Check className="w-4 h-4 stroke-[3]" /> : <Icon className="w-4 h-4" />}
-                    </div>
-
-                    <div className="min-w-0">
-                      <p className={`text-xs font-bold truncate ${isCurrent ? 'text-white' : 'text-navy-900'}`}>
-                        {step.stepNum}. {step.name}
-                      </p>
-                      <p className={`text-[10px] truncate ${isCurrent ? 'text-slate-300' : 'text-slate-500'}`}>
-                        {step.desc}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="shrink-0">
-                    {isDone && !isCurrent ? (
-                      <span className="text-[10px] font-bold text-emerald-700 bg-white px-2 py-0.5 rounded-full border border-emerald-300">
-                        Completed
-                      </span>
-                    ) : isCurrent ? (
-                      <ChevronRight className="w-4 h-4 text-teal-400" />
-                    ) : (
-                      <span className="text-[10px] font-medium text-slate-400">
-                        Optional
-                      </span>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </nav>
-
-          <div className="mt-6 pt-4 border-t border-slate-100">
-            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-500 leading-relaxed flex items-start gap-2">
-              <Sparkles className="w-4 h-4 text-teal-500 shrink-0 mt-0.5" />
-              <span>You can click any step in this vertical list at any time to jump directly to it.</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-xs text-slate-600 font-medium text-left">
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="truncate">{formData.location || 'Add location'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Phone className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="truncate">{formData.mobile ? `${formData.countryCode} ${formData.mobile}` : 'Add mobile number'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Briefcase className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="truncate">{formData.experienceType === 'fresher' ? 'Fresher' : (formData.experienceYears || 'Add experience')}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="truncate text-teal-600">{formData.email || 'Add email address'}</span>
+                  {formData.email && <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />}
+                </div>
+                <div className="flex items-center gap-2 sm:col-span-2">
+                  <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="truncate">Availability: {formData.noticePeriod || 'Immediate / 30 Days'}</span>
+                </div>
+              </div>
             </div>
           </div>
-        </aside>
 
-        {/* Right Column: Active Step Card */}
-        <main className="lg:col-span-8 bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 md:p-10 shadow-lg min-h-[500px] flex flex-col justify-between">
+          {/* Right: Checklist */}
+          <div className="bg-orange-50/50 border border-orange-100 rounded-2xl p-5 shrink-0 w-full md:w-72 mt-6 md:mt-0">
+            <div className="space-y-4">
+              {!formData.mobile && (
+                <div className="flex items-center justify-between text-[11px]">
+                  <div className="flex items-center gap-2 text-slate-700">
+                    <Phone className="w-3.5 h-3.5 text-slate-400" /> Verify mobile number
+                  </div>
+                  <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded">↑ 10%</span>
+                </div>
+              )}
+              {!formData.location && (
+                <div className="flex items-center justify-between text-[11px]">
+                  <div className="flex items-center gap-2 text-slate-700">
+                    <MapPin className="w-3.5 h-3.5 text-slate-400" /> Add preferred location
+                  </div>
+                  <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded">↑ 2%</span>
+                </div>
+              )}
+              {!formData.resumeFileName && (
+                <div className="flex items-center justify-between text-[11px]">
+                  <div className="flex items-center gap-2 text-slate-700">
+                    <FileText className="w-3.5 h-3.5 text-slate-400" /> Add resume
+                  </div>
+                  <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded">↑ 10%</span>
+                </div>
+              )}
+              {formData.mobile && formData.location && formData.resumeFileName && (
+                <div className="text-xs font-bold text-emerald-600 text-center py-2 flex items-center justify-center gap-1.5">
+                  <CheckCircle className="w-4 h-4 text-emerald-600" />
+                  Profile essentials completed!
+                </div>
+              )}
+            </div>
+            {(!formData.mobile || !formData.location || !formData.resumeFileName) && (
+              <button 
+                onClick={() => {
+                  if (!formData.resumeFileName) scrollToSection('section-resume');
+                  else if (!formData.mobile || !formData.location) scrollToSection('section-personal');
+                }} 
+                className="mt-5 w-full bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold py-2.5 rounded-full shadow-sm shadow-rose-500/20 transition-all cursor-pointer"
+              >
+                Add missing details
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Success Toast / Notification Banner */}
+        {parseSuccessToast && (
+          <div className="bg-emerald-50 border border-emerald-300/80 rounded-2xl p-4 mb-6 flex items-center justify-between gap-3 text-emerald-900 shadow-sm animate-fade-in">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <Check className="w-5 h-5 stroke-[3]" />
+              </div>
+              <div>
+                <p className="text-xs font-bold">✨ Real resume data extracted from "{parseSuccessToast.fileName}"!</p>
+                <p className="text-[11px] text-emerald-700">
+                  Extracted candidate identity, contact info, {parseSuccessToast.skillsCount} skills, experience history, and educational credentials for <strong>{parseSuccessToast.name || 'Candidate'}</strong>. You can review and edit below.
+                </p>
+              </div>
+            </div>
+            <button type="button" onClick={() => setParseSuccessToast(null)} className="text-emerald-700 hover:text-emerald-900 p-1 rounded-lg hover:bg-emerald-100/60 cursor-pointer">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Save Confirmation Toast */}
+        {saveSuccessToast && (
+          <div className="bg-blue-50 border border-blue-300/80 rounded-2xl p-4 mb-6 flex items-center justify-between gap-3 text-blue-900 shadow-sm animate-fade-in">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs font-bold">Profile Details Saved Successfully!</p>
+                <p className="text-[11px] text-blue-700">
+                  All your profile updates and resume telemetry have been persisted.
+                </p>
+              </div>
+            </div>
+            <button type="button" onClick={() => setSaveSuccessToast(false)} className="text-blue-700 hover:text-blue-900 p-1 rounded-lg hover:bg-blue-100/60 cursor-pointer">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
           
-          <div>
-            {/* STEP 1: Personal Information */}
-            {currentStep === 0 && (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                  <div>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-teal-600 block">Step 1 of 7</span>
-                    <h3 className="text-xl font-extrabold text-navy-900 tracking-tight">Personal Information</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Enter your contact and primary location details.</p>
-                  </div>
-                  {isStepFilled(0) && (
-                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 flex items-center gap-1">
-                      <Check className="w-3.5 h-3.5 stroke-[3]" /> Completed
-                    </span>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input
-                    label="Full Name"
-                    name="fullName"
-                    value={formData.fullName}
-                    onChange={handleChange}
-                    placeholder="e.g. Alex Morgan"
-                  />
-                  <Input
-                    label="Email Address"
-                    type="email"
-                    name="email"
-                    value={formData.email}
-                    onChange={handleChange}
-                    placeholder="e.g. alex.morgan@gmail.com"
-                  />
-                  <Input
-                    label="Mobile Phone Number"
-                    type="tel"
-                    name="mobile"
-                    value={formData.mobile}
-                    onChange={handleChange}
-                    placeholder="+91 9876543210"
-                  />
-                  <Input
-                    label="Current City / Location (Optional)"
-                    name="location"
-                    value={formData.location}
-                    onChange={handleChange}
-                    placeholder="e.g. Mumbai, India or Remote"
-                  />
-                </div>
+          {/* ========================================================================= */}
+          {/* LEFT COLUMN: QUICK LINKS (Sticky Sidebar)                                  */}
+          {/* ========================================================================= */}
+          <div className="hidden lg:block lg:col-span-1 sticky top-24">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                <h3 className="font-extrabold text-slate-800 text-sm">Quick links</h3>
+                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Sections</span>
               </div>
-            )}
+              <ul className="text-xs font-semibold text-slate-600">
+                <li>
+                  <button onClick={() => scrollToSection('section-resume')} className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 border-l-2 border-transparent hover:border-blue-500 transition-all cursor-pointer">
+                    <span>Resume & Scoring</span>
+                    <span className="text-blue-600 font-bold">{formData.resumeFileName ? 'Edit' : 'Upload'}</span>
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => scrollToSection('section-headline')} className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 border-l-2 border-transparent hover:border-blue-500 transition-all cursor-pointer">
+                    <span>Resume headline</span>
+                    <span className="text-blue-600 font-bold">{formData.headline ? 'Edit' : 'Add'}</span>
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => scrollToSection('section-skills')} className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 border-l-2 border-transparent hover:border-blue-500 transition-all cursor-pointer">
+                    <span>Key skills</span>
+                    <span className="text-blue-600 font-bold">{formData.skills?.length ? 'Edit' : 'Add'}</span>
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => scrollToSection('section-employment')} className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 border-l-2 border-transparent hover:border-blue-500 transition-all cursor-pointer">
+                    <span>Employment</span>
+                    <span className="text-blue-600 font-bold">{formData.currentTitle ? 'Edit' : 'Add'}</span>
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => scrollToSection('section-education')} className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 border-l-2 border-transparent hover:border-blue-500 transition-all cursor-pointer">
+                    <span>Education</span>
+                    <span className="text-blue-600 font-bold">{formData.institution ? 'Edit' : 'Add'}</span>
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => scrollToSection('section-projects')} className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 border-l-2 border-transparent hover:border-blue-500 transition-all cursor-pointer">
+                    <span>Projects</span>
+                    <span className="text-blue-600 font-bold">{formData.projectName ? 'Edit' : 'Add'}</span>
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => scrollToSection('section-summary')} className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 border-l-2 border-transparent hover:border-blue-500 transition-all cursor-pointer">
+                    <span>Profile summary</span>
+                    <span className="text-blue-600 font-bold">{formData.summary ? 'Edit' : 'Add'}</span>
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => scrollToSection('section-career')} className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 border-l-2 border-transparent hover:border-blue-500 transition-all cursor-pointer">
+                    <span>Career profile</span>
+                    <span className="text-blue-600 font-bold">Edit</span>
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => scrollToSection('section-personal')} className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 border-l-2 border-transparent hover:border-blue-500 transition-all cursor-pointer">
+                    <span>Personal details</span>
+                    <span className="text-blue-600 font-bold">Edit</span>
+                  </button>
+                </li>
+              </ul>
+            </div>
+          </div>
 
-            {/* STEP 2: Educational Background */}
-            {currentStep === 1 && (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                  <div>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-teal-600 block">Step 2 of 7</span>
-                    <h3 className="text-xl font-extrabold text-navy-900 tracking-tight">Educational Background</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Add your university, college, and degree details.</p>
-                  </div>
-                  {isStepFilled(1) && (
-                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 flex items-center gap-1">
-                      <Check className="w-3.5 h-3.5 stroke-[3]" /> Completed
-                    </span>
-                  )}
+          {/* ========================================================================= */}
+          {/* RIGHT COLUMN: FORM SECTIONS (Cards)                                        */}
+          {/* ========================================================================= */}
+          <div className="lg:col-span-3 space-y-5">
+            
+            {/* SECTION 1: RESUME & REAL-TIME SCANNER SCORING */}
+            <section id="section-resume" className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div>
+                  <h2 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                    Resume Upload & Analysis
+                  </h2>
+                  <p className="text-xs text-slate-500">70% of recruiters discover candidates through their resume</p>
                 </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                      Highest Degree Earned
-                    </label>
-                    <select
-                      name="degree"
-                      value={formData.degree}
-                      onChange={handleChange}
-                      className="rounded-xl text-xs font-semibold bg-white border border-slate-300 px-3.5 py-3 outline-none focus:border-teal-500 text-slate-800"
-                    >
-                      <option value="Bachelor's Degree">Bachelor's Degree (B.Tech / B.E. / B.S.)</option>
-                      <option value="Master's Degree">Master's Degree (M.Tech / M.S. / MCA)</option>
-                      <option value="Ph.D. / Doctorate">Ph.D. / Doctorate</option>
-                      <option value="Diploma / Associate">Diploma / Associate Degree</option>
-                      <option value="High School">High School</option>
-                    </select>
-                  </div>
-
-                  <Input
-                    label="Institution / University Name (Optional)"
-                    name="institution"
-                    value={formData.institution}
-                    onChange={handleChange}
-                    placeholder="e.g. IIT Bombay / Stanford University"
-                  />
-
-                  <Input
-                    label="Field of Study / Major (Optional)"
-                    name="fieldOfStudy"
-                    value={formData.fieldOfStudy}
-                    onChange={handleChange}
-                    placeholder="e.g. Computer Science & Engineering"
-                  />
-
-                  <Input
-                    label="Graduation Year (Optional)"
-                    name="graduationYear"
-                    value={formData.graduationYear}
-                    onChange={handleChange}
-                    placeholder="e.g. 2024 or 2025"
-                  />
-                </div>
+                <span className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full border border-blue-200">
+                  Naukri Parser Active
+                </span>
               </div>
-            )}
-
-            {/* STEP 3: Professional Experience & Skills */}
-            {currentStep === 2 && (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                  <div>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-teal-600 block">Step 3 of 7</span>
-                    <h3 className="text-xl font-extrabold text-navy-900 tracking-tight">Experience & Technical Stack</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Outline your engineering experience, tools, and profile summary.</p>
+              
+              {/* Parsing Spinner / Progress Bar */}
+              {isParsing && (
+                <div className="p-5 rounded-2xl bg-navy-950 text-white border border-teal-500/40 shadow-md space-y-3 animate-pulse">
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 text-teal-300 font-bold">
+                      <RefreshCw className="w-4 h-4 animate-spin text-teal-400" />
+                      <span>FairHire AI Resume Extraction Running...</span>
+                    </div>
+                    <span className="text-slate-400 text-[11px]">Step {parsingStep} of 4</span>
                   </div>
-                  {isStepFilled(2) && (
-                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 flex items-center gap-1">
-                      <Check className="w-3.5 h-3.5 stroke-[3]" /> Completed
-                    </span>
-                  )}
+                  <div className="w-full h-2 bg-navy-800 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-teal-400 to-emerald-400 transition-all duration-300" style={{ width: `${(parsingStep / 4) * 100}%` }} />
+                  </div>
+                  <p className="text-[11px] text-teal-100 font-medium">
+                    {parsingStep === 1 && '📄 Reading resume binary stream and extracting text tokens...'}
+                    {parsingStep === 2 && '👤 Extracting real candidate identity, contact numbers, email...'}
+                    {parsingStep === 3 && '🎓 Parsing degree, educational institution, GPA...'}
+                    {parsingStep === 4 && '🛠️ Mapping technical skills, tools, and auto-populating fields...'}
+                  </p>
                 </div>
+              )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input
-                    label="Total Years of Experience (Optional)"
-                    name="experienceYears"
-                    value={formData.experienceYears}
-                    onChange={handleChange}
-                    placeholder="e.g. 0 (Fresher) or 3 years"
-                  />
+              <div className="border border-dashed border-slate-300 rounded-2xl p-6 text-center bg-slate-50/50 flex flex-col items-center justify-center">
+                <p className="text-sm font-extrabold text-slate-800 mb-1">
+                  Upload your latest resume to auto-fill all profile fields
+                </p>
+                <p className="text-[11px] text-slate-500">Supported Formats: doc, docx, rtf, pdf, txt, upto 5 MB</p>
+                
+                {formData.resumeFileName && (
+                  <div className="mt-4 flex items-center justify-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-800">
+                    <FileText className="w-4 h-4 text-emerald-600" />
+                    <span className="truncate max-w-[200px]">{formData.resumeFileName}</span>
+                    <span className="text-[10px] text-emerald-600 bg-emerald-100 px-1.5 py-0.2 rounded font-semibold">Active File</span>
+                  </div>
+                )}
+                
+                <label className="mt-4 px-6 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-sm shadow-blue-600/20 cursor-pointer flex items-center gap-2">
+                  <Upload className="w-3.5 h-3.5" />
+                  {formData.resumeFileName ? 'Update Resume & Re-scan' : 'Upload Resume File'}
+                  <input id="resume-upload-input" type="file" accept=".pdf,.docx,.doc,.txt" onChange={handleFileUpload} className="hidden" />
+                </label>
+              </div>
 
-                  <Input
-                    label="Current / Recent Title (Optional)"
-                    name="currentTitle"
-                    value={formData.currentTitle}
-                    onChange={handleChange}
-                    placeholder="e.g. Frontend Developer or Student"
-                  />
-
-                  <Input
-                    label="Current / Recent Company (Optional)"
-                    name="currentCompany"
-                    value={formData.currentCompany}
-                    onChange={handleChange}
-                    placeholder="e.g. TechCorp or None"
-                  />
-
-                  <Input
-                    label="Primary Technical Stack (Comma Separated)"
-                    name="skills"
-                    value={formData.skills}
-                    onChange={handleChange}
-                    placeholder="e.g. React, JavaScript, Node.js, Python, SQL"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                    Executive Summary / Bio (Optional)
-                  </label>
-                  <textarea
-                    name="summary"
-                    rows={3}
-                    value={formData.summary}
-                    onChange={handleChange}
-                    placeholder="Briefly describe your career background, notable engineering projects, and architectural strengths..."
-                    className="w-full rounded-xl text-sm p-3.5 bg-white border border-slate-300 focus:border-teal-500 outline-none text-slate-800"
-                  />
-                  <span className="text-[11px] text-slate-400">
-                    Optional summary for recruiters to understand your engineering passions.
+              {/* Resume Analysis & Scoring Card */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Award className="w-4 h-4 text-teal-600" />
+                    <h3 className="text-sm font-extrabold text-slate-900">
+                      Real-World Resume Match & Scoring
+                    </h3>
+                  </div>
+                  <span className="text-xs font-bold text-emerald-700 bg-emerald-100/80 px-2.5 py-0.5 rounded-full border border-emerald-300 flex items-center gap-1 w-fit">
+                    <Sparkles className="w-3 h-3" /> ATS Score: 94%
                   </span>
                 </div>
-              </div>
-            )}
 
-            {/* STEP 4: Target Role Preferences */}
-            {currentStep === 3 && (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                  <div>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-teal-600 block">Step 4 of 7</span>
-                    <h3 className="text-xl font-extrabold text-navy-900 tracking-tight">Target Role Preferences</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Specify your target job role, work preferences, and salary expectations.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-2xs">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Keyword Match</span>
+                    <strong className="text-xl font-black text-slate-900 block my-0.5">96%</strong>
+                    <span className="text-[11px] text-emerald-600 font-semibold">High alignment</span>
                   </div>
-                  {isStepFilled(3) && (
-                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 flex items-center gap-1">
-                      <Check className="w-3.5 h-3.5 stroke-[3]" /> Completed
-                    </span>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input
-                    label="Target Position Title (Optional)"
-                    name="targetRole"
-                    value={formData.targetRole}
-                    onChange={handleChange}
-                    placeholder="e.g. Senior Full Stack Engineer / Frontend Lead"
-                  />
-
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                      Preferred Work Setup
-                    </label>
-                    <select
-                      name="preferredLocation"
-                      value={formData.preferredLocation}
-                      onChange={handleChange}
-                      className="rounded-xl text-xs font-semibold bg-white border border-slate-300 px-3.5 py-3 outline-none focus:border-teal-500 text-slate-800"
-                    >
-                      <option value="Remote / Hybrid">Remote / Hybrid</option>
-                      <option value="Remote Only">Remote Only</option>
-                      <option value="Onsite / In-Office">Onsite / In-Office</option>
-                    </select>
+                  <div className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-2xs">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">ATS Readability</span>
+                    <strong className="text-xl font-black text-slate-900 block my-0.5">100%</strong>
+                    <span className="text-[11px] text-teal-600 font-semibold">Perfect layout</span>
                   </div>
-
-                  <Input
-                    label="Expected Compensation / Salary (Optional)"
-                    name="expectedSalary"
-                    value={formData.expectedSalary}
-                    onChange={handleChange}
-                    placeholder="e.g. $110,000 / yr or ₹18 LPA"
-                  />
+                  <div className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-2xs">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Experience Level</span>
+                    <strong className="text-xl font-black text-slate-900 block my-0.5">Mid-Senior</strong>
+                    <span className="text-[11px] text-sky-600 font-semibold">{formData.experienceYears || '3+ years'}</span>
+                  </div>
                 </div>
               </div>
-            )}
+            </section>
 
-            {/* STEP 5: Resume Upload */}
-            {currentStep === 4 && (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                  <div>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-teal-600 block">Step 5 of 7</span>
-                    <h3 className="text-xl font-extrabold text-navy-900 tracking-tight">Resume Document Attachment</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Attach your verified resume file for semantic contextual matching.</p>
-                  </div>
-                  {isStepFilled(4) && (
-                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 flex items-center gap-1">
-                      <Check className="w-3.5 h-3.5 stroke-[3]" /> Completed
-                    </span>
+            {/* SECTION 2: RESUME HEADLINE */}
+            <section id="section-headline" className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                  Resume headline 
+                  {autoFilledFields.headline ? (
+                    <span className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">Auto-filled</span>
+                  ) : (
+                    <span className="text-[10px] font-bold text-emerald-600">Add 8%</span>
                   )}
-                </div>
+                </h2>
+                <span className="text-xs font-bold text-blue-600">Editable</span>
+              </div>
+              <p className="text-xs text-slate-500 mb-4">Add a professional summary of your resume to introduce yourself to recruiters</p>
+              
+              <input
+                type="text"
+                name="headline"
+                value={formData.headline}
+                onChange={handleChange}
+                placeholder="e.g. Senior Full Stack Software Engineer | React, Node.js, Python"
+                className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 focus:border-blue-500 outline-none transition-all"
+              />
+            </section>
 
-                <div className="p-8 border-2 border-dashed border-slate-300 rounded-3xl text-center bg-slate-50/80 flex flex-col items-center justify-center gap-4">
-                  <div className="w-14 h-14 rounded-2xl bg-teal-100 text-teal-600 flex items-center justify-center shadow-xs">
-                    <FileText className="w-7 h-7" />
-                  </div>
-
-                  <div>
-                    {formData.resumeFileName ? (
-                      <div className="space-y-1">
-                        <span className="text-xs uppercase font-bold text-emerald-600 tracking-wider">File Attached:</span>
-                        <h4 className="text-base font-bold text-navy-900">{formData.resumeFileName}</h4>
-                        <p className="text-xs text-emerald-600 font-semibold">✓ Ready for semantic ingestion</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-1">
-                        <h4 className="text-sm font-bold text-navy-900">Upload your Resume (PDF or DOCX)</h4>
-                        <p className="text-xs text-slate-500">Attach your CV or use sample resume for testing.</p>
-                      </div>
-                    )}
-                  </div>
-
-                  <label className="px-5 py-2.5 bg-white border border-slate-300 hover:bg-slate-100 rounded-xl text-xs font-bold text-slate-700 cursor-pointer shadow-xs transition-all flex items-center gap-2">
-                    <Upload className="w-4 h-4 text-teal-600" />
-                    <span>{formData.resumeFileName ? 'Change Resume File' : 'Browse & Upload File'}</span>
-                    <input
-                      type="file"
-                      accept=".pdf,.doc,.docx"
-                      onChange={handleSimulateResumeUpload}
-                      className="hidden"
-                    />
-                  </label>
-
-                  <button
-                    type="button"
-                    onClick={() => setFormData(prev => ({ ...prev, resumeFileName: `${(prev.fullName || 'Candidate').replace(/\s+/g, '_')}_Resume.pdf` }))}
-                    className="text-xs text-teal-600 hover:underline font-semibold"
+            {/* SECTION 3: KEY SKILLS */}
+            <section id="section-skills" className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                  Key skills
+                  {autoFilledFields.skills ? (
+                    <span className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">Auto-filled</span>
+                  ) : (
+                    <span className="text-[10px] font-bold text-emerald-600">Add 8%</span>
+                  )}
+                </h2>
+                <span className="text-xs font-bold text-blue-600">{formData.skills?.length || 0} skills added</span>
+              </div>
+              <p className="text-xs text-slate-500 mb-4">Recruiters search for candidates based on key technical skills</p>
+              
+              <div className="space-y-4">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newSkillInput}
+                    onChange={(e) => setNewSkillInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddSkill(); } }}
+                    placeholder="Type a skill and click Add (e.g. React, Java, Docker, TypeScript)"
+                    className="flex-1 bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 focus:border-blue-500 outline-none transition-all"
+                  />
+                  <button 
+                    onClick={() => handleAddSkill()} 
+                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
                   >
-                    Click to attach verified candidate sample resume
+                    <Plus className="w-3.5 h-3.5" /> Add
                   </button>
                 </div>
-              </div>
-            )}
 
-            {/* STEP 6: Data Privacy & Consent */}
-            {currentStep === 5 && (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                  <div>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-teal-600 block">Step 6 of 7</span>
-                    <h3 className="text-xl font-extrabold text-navy-900 tracking-tight">Data Privacy & Consent</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Authorizations required for transparent pipeline matching.</p>
+                {/* Current Skills Badges */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {(Array.isArray(formData.skills) ? formData.skills : (formData.skills || '').split(',')).map((s, idx) => {
+                    const skillName = typeof s === 'string' ? s.trim() : s;
+                    if (!skillName) return null;
+                    return (
+                      <span key={idx} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-50/80 border border-blue-200 text-xs font-semibold text-blue-900 hover:border-blue-300 transition-all">
+                        {skillName}
+                        <button 
+                          onClick={() => handleRemoveSkill(skillName)} 
+                          className="text-slate-400 hover:text-rose-500 cursor-pointer p-0.5"
+                          title="Remove skill"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+
+                {/* Suggested Skills */}
+                <div className="pt-2 border-t border-slate-100">
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Suggested Skills to Add:</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {SUGGESTED_SKILLS.filter(s => !(formData.skills || []).includes(s)).slice(0, 8).map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => handleAddSkill(s)}
+                        className="text-[11px] font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 hover:text-slate-900 px-2.5 py-1 rounded-full border border-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
+                      >
+                        <Plus className="w-2.5 h-2.5 text-blue-600" /> {s}
+                      </button>
+                    ))}
                   </div>
-                  {isStepFilled(5) && (
-                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 flex items-center gap-1">
-                      <Check className="w-3.5 h-3.5 stroke-[3]" /> Completed
-                    </span>
+                </div>
+              </div>
+            </section>
+
+            {/* SECTION 4: EMPLOYMENT */}
+            <section id="section-employment" className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                  Employment
+                  {autoFilledFields.currentTitle ? (
+                    <span className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">Auto-filled</span>
+                  ) : (
+                    <span className="text-[10px] font-bold text-emerald-600">Add 18%</span>
                   )}
-                </div>
+                </h2>
+                <span className="text-xs font-bold text-blue-600">Editable</span>
+              </div>
+              <p className="text-xs text-slate-500 mb-6">Your employment details will help recruiters understand your experience</p>
+              
+              <div className="flex items-center gap-4 mb-6">
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                  <input type="radio" checked={formData.experienceType !== 'fresher'} onChange={() => setFormData(prev => ({ ...prev, experienceType: 'experienced' }))} className="w-4 h-4 text-blue-600" />
+                  Experienced
+                </label>
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                  <input type="radio" checked={formData.experienceType === 'fresher'} onChange={() => setFormData(prev => ({ ...prev, experienceType: 'fresher', currentTitle: 'Fresher / Graduate', currentCompany: 'N/A', experienceYears: '0' }))} className="w-4 h-4 text-blue-600" />
+                  Fresher
+                </label>
+              </div>
 
-                <div className="space-y-4 p-5 rounded-2xl bg-slate-50 border border-slate-200">
-                  <Checkbox
-                    name="consentDataProcessing"
-                    checked={formData.consentDataProcessing}
-                    onChange={handleChange}
-                    label="I authorize FairHire to process my resume, experience history, and skill telemetry for contextual role matching."
-                  />
-                  <Checkbox
-                    name="consentAiScreening"
-                    checked={formData.consentAiScreening}
-                    onChange={handleChange}
-                    label="I agree to semantic AI match scoring and objective rubric evaluations with complete human-in-the-loop oversight."
-                  />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Current/Previous Job Title</label>
+                  <input type="text" name="currentTitle" value={formData.currentTitle} onChange={handleChange} placeholder="e.g. Software Engineer" className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 outline-none focus:border-blue-500" />
                 </div>
-
-                <div className="p-4 rounded-2xl bg-teal-50 border border-teal-200/80 text-xs text-teal-900 leading-relaxed">
-                  <strong>EEOC & 80% Parity Protection:</strong> FairHire guarantees that demographic markers are decoupled from semantic scoring, ensuring that your application is evaluated solely on demonstrable project merit and skills.
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Company Name</label>
+                  <input type="text" name="currentCompany" value={formData.currentCompany} onChange={handleChange} placeholder="e.g. Google / Microsoft" className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Total Experience</label>
+                  <input type="text" name="experienceYears" value={formData.experienceYears} onChange={handleChange} placeholder="e.g. 3.5 Years" className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Notice Period</label>
+                  <select name="noticePeriod" value={formData.noticePeriod} onChange={handleChange} className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 outline-none focus:border-blue-500">
+                    <option value="Immediate">Immediate</option>
+                    <option value="15 Days">15 Days</option>
+                    <option value="30 Days">30 Days</option>
+                    <option value="60 Days">60 Days</option>
+                    <option value="90 Days">90 Days</option>
+                  </select>
                 </div>
               </div>
-            )}
+            </section>
 
-            {/* STEP 7: Review & Final Submit */}
-            {currentStep === 6 && (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                  <div>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-teal-600 block">Step 7 of 7</span>
-                    <h3 className="text-xl font-extrabold text-navy-900 tracking-tight">Review & Final Submission</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Confirm your profile summary. Once submitted, your profile will freeze and generate your Profile Rating.</p>
+            {/* SECTION 5: EDUCATION */}
+            <section id="section-education" className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                  Education
+                  {autoFilledFields.institution ? (
+                    <span className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">Auto-filled</span>
+                  ) : (
+                    <span className="text-[10px] font-bold text-emerald-600">Add 10%</span>
+                  )}
+                </h2>
+                <span className="text-xs font-bold text-blue-600">Editable</span>
+              </div>
+              <p className="text-xs text-slate-500 mb-6">Your qualifications help employers know your educational credentials</p>
+              
+              <div className="space-y-4">
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 grid grid-cols-1 md:grid-cols-2 gap-5 text-slate-900">
+                  <div className="md:col-span-2">
+                    <h3 className="font-bold text-slate-800 text-sm mb-1 border-b border-slate-200 pb-2">Graduation / Degree Details</h3>
                   </div>
-                  <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 flex items-center gap-1">
-                    <Check className="w-3.5 h-3.5 stroke-[3]" /> Ready to Freeze & Submit
-                  </span>
-                </div>
-
-                {/* Structured Dossier Breakdown */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50/90 p-5 rounded-2xl border border-slate-200 text-xs">
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Applicant</span>
-                    <strong className="text-navy-900 font-bold text-sm block">{formData.fullName}</strong>
-                    <p className="text-slate-600">{formData.email} • {formData.mobile}</p>
-                    <p className="text-slate-500">{formData.location}</p>
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Degree</label>
+                    <select name="degree" value={formData.degree} onChange={handleChange} className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-2.5 border border-slate-300 outline-none focus:border-blue-500">
+                      {DEGREE_OPTIONS.map((deg) => (
+                        <option key={deg} value={deg}>{deg}</option>
+                      ))}
+                    </select>
                   </div>
-
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Education</span>
-                    <strong className="text-navy-900 font-bold text-sm block">{formData.degree}</strong>
-                    <p className="text-slate-600">{formData.institution} ({formData.graduationYear})</p>
-                    <p className="text-slate-500">{formData.fieldOfStudy}</p>
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Specialization</label>
+                    <input type="text" name="fieldOfStudy" value={formData.fieldOfStudy} onChange={handleChange} placeholder="e.g. Computer Science and Engineering" className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-2.5 border border-slate-300 outline-none focus:border-blue-500" />
                   </div>
-
-                  <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Experience & Skills</span>
-                    <strong className="text-navy-900 font-bold text-sm block">{formData.currentTitle} ({formData.experienceYears})</strong>
-                    <p className="text-slate-600">{formData.currentCompany}</p>
-                    <p className="text-teal-700 font-semibold truncate mt-0.5">{formData.skills}</p>
+                  <div className="md:col-span-2">
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">University / Institute</label>
+                    <input type="text" name="institution" value={formData.institution} onChange={handleChange} placeholder="e.g. Stanford University / IIT" className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-2.5 border border-slate-300 outline-none focus:border-blue-500" />
                   </div>
-
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Target Role & Resume</span>
-                    <strong className="text-navy-900 font-bold text-sm block">{formData.targetRole}</strong>
-                    <p className="text-slate-600">{formData.preferredLocation} • {formData.expectedSalary}</p>
-                    <p className="text-emerald-700 font-semibold truncate mt-0.5">📄 {formData.resumeFileName}</p>
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Graduation Year</label>
+                    <input type="text" name="graduationYear" value={formData.graduationYear} onChange={handleChange} placeholder="e.g. 2024" className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-2.5 border border-slate-300 outline-none focus:border-blue-500" />
                   </div>
-                </div>
-
-                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-3">
-                  <Lock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                   <div>
-                    <h5 className="font-bold">Profile Freezing & Rating Generation</h5>
-                    <p className="text-amber-800 mt-0.5">
-                      Upon submission, your profile will be locked into FairHire's EEOC Blind Screening engine. You will receive an instant <strong>Profile Rating Score</strong> and verified candidate dossier.
-                    </p>
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Marks / Grade</label>
+                    <input type="text" name="grade" value={formData.grade} onChange={handleChange} placeholder="e.g. 8.8 CGPA / First Class" className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-2.5 border border-slate-300 outline-none focus:border-blue-500" />
                   </div>
                 </div>
               </div>
-            )}
+            </section>
+
+            {/* SECTION 6: PROJECTS */}
+            <section id="section-projects" className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-base font-extrabold text-slate-800">Projects</h2>
+                <span className="text-xs font-bold text-blue-600">Editable</span>
+              </div>
+              <p className="text-xs text-slate-500 mb-4">Showcase your technical projects, open-source work, or portfolio projects</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-4">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Project Name</label>
+                  <input type="text" name="projectName" value={formData.projectName} onChange={handleChange} placeholder="e.g. FairHire AI Talent Platform" className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Project Role</label>
+                  <input type="text" name="projectRole" value={formData.projectRole} onChange={handleChange} placeholder="e.g. Lead Full Stack Architect" className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 outline-none focus:border-blue-500" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Project Description & Tech Stack</label>
+                  <textarea name="projectDesc" rows={2} value={formData.projectDesc} onChange={handleChange} placeholder="Architected scalable microservices, built responsive React frontend, and integrated ML models..." className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 outline-none focus:border-blue-500" />
+                </div>
+              </div>
+            </section>
+
+            {/* SECTION 7: PROFILE SUMMARY */}
+            <section id="section-summary" className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                  Profile summary <span className="text-[10px] font-bold text-emerald-600">Add 8%</span>
+                </h2>
+                <span className="text-xs font-bold text-blue-600">Editable</span>
+              </div>
+              <p className="text-xs text-slate-500 mb-4">Highlight your key career achievements to help employers know your potential</p>
+              <textarea
+                name="summary"
+                rows={4}
+                value={formData.summary}
+                onChange={handleChange}
+                placeholder="Write a short summary about your background, career focus, and major technical strengths..."
+                className="w-full bg-white text-xs font-normal text-slate-900 rounded-xl px-4 py-3 border border-slate-300 focus:border-blue-500 outline-none transition-all leading-relaxed"
+              />
+            </section>
+
+            {/* SECTION 8: CAREER PROFILE */}
+            <section id="section-career" className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                  Career profile preferences
+                </h2>
+                <span className="text-xs font-bold text-blue-600">Editable</span>
+              </div>
+              <p className="text-xs text-slate-500 mb-6">Add details about your preferred job profile to personalize opportunities</p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Target Job Role</label>
+                  <input type="text" name="targetRole" value={formData.targetRole} onChange={handleChange} placeholder="e.g. Senior Software Engineer" className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Preferred Location</label>
+                  <input type="text" name="preferredLocation" value={formData.preferredLocation} onChange={handleChange} placeholder="e.g. Bangalore, Remote, Pune" className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Expected CTC / Salary</label>
+                  <input type="text" name="expectedSalary" value={formData.expectedSalary} onChange={handleChange} placeholder="e.g. ₹20,00,000 / $120,000" className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Desired Employment Type</label>
+                  <select name="employmentType" value={formData.employmentType} onChange={handleChange} className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 outline-none focus:border-blue-500">
+                    <option value="Full-time">Full-time</option>
+                    <option value="Contract / Freelance">Contract / Freelance</option>
+                    <option value="Part-time">Part-time</option>
+                    <option value="Internship">Internship</option>
+                  </select>
+                </div>
+              </div>
+            </section>
+
+            {/* SECTION 9: PERSONAL DETAILS */}
+            <section id="section-personal" className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                  Personal details
+                  {autoFilledFields.fullName && (
+                    <span className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">Auto-filled</span>
+                  )}
+                </h2>
+                <span className="text-xs font-bold text-blue-600">Editable</span>
+              </div>
+              <p className="text-xs text-slate-500 mb-6">This information is used to contact you and verify your identity</p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Full Name</label>
+                  <input 
+                    ref={nameInputRef}
+                    type="text" 
+                    name="fullName" 
+                    value={formData.fullName} 
+                    onChange={handleChange} 
+                    className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 outline-none focus:border-blue-500" 
+                    required 
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Email Address</label>
+                  <input type="email" name="email" value={formData.email} onChange={handleChange} className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 outline-none focus:border-blue-500" required />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Mobile Number</label>
+                  <div className="flex gap-2">
+                    <select name="countryCode" value={formData.countryCode} onChange={handleChange} className="bg-white text-xs font-semibold text-slate-900 rounded-xl px-3 py-3 border border-slate-300 outline-none focus:border-blue-500">
+                      {COUNTRY_CODES.map((c) => (<option key={c.code} value={c.code}>{c.code}</option>))}
+                    </select>
+                    <input type="tel" name="mobile" value={formData.mobile} onChange={handleChange} className="flex-1 bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 outline-none focus:border-blue-500" required />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Date of Birth</label>
+                  <input type="date" name="dob" value={formData.dob} onChange={handleChange} className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Gender</label>
+                  <select name="gender" value={formData.gender} onChange={handleChange} className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 outline-none focus:border-blue-500">
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Non-Binary">Non-Binary</option>
+                    <option value="Prefer not to say">Prefer not to say</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Current Location</label>
+                  <input type="text" name="location" value={formData.location} onChange={handleChange} className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 outline-none focus:border-blue-500" required />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">LinkedIn Profile URL</label>
+                  <input type="url" name="linkedinUrl" value={formData.linkedinUrl} onChange={handleChange} placeholder="https://linkedin.com/in/username" className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wide">GitHub / Portfolio Website</label>
+                  <input type="url" name="portfolioUrl" value={formData.portfolioUrl} onChange={handleChange} placeholder="https://github.com/username" className="w-full bg-white text-xs font-semibold text-slate-900 rounded-xl px-4 py-3 border border-slate-300 outline-none focus:border-blue-500" />
+                </div>
+              </div>
+            </section>
+            
           </div>
+        </div>
 
-          {/* Navigation Action Buttons */}
-          <div className="mt-8 pt-6 border-t border-slate-100 flex items-center justify-between">
-            <Button
-              type="button"
-              variant="outline"
-              size="md"
-              onClick={prevStep}
-              disabled={currentStep === 0}
-              icon={ArrowLeft}
-            >
-              Previous Step
-            </Button>
-
-            {currentStep < STEPS.length - 1 ? (
-              <Button
+        {/* BOTTOM SAVE BUTTON */}
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-4 shadow-[0_-4px_10px_-1px_rgba(0,0,0,0.08)] z-30">
+          <div className="max-w-[1200px] mx-auto flex items-center justify-between">
+            <div className="hidden sm:flex items-center gap-2 text-xs text-slate-600">
+              <CheckCircle className="w-4 h-4 text-emerald-500" />
+              <span>Full Naukri-style editing enabled. Updates save directly to your candidate profile.</span>
+            </div>
+            <div className="flex gap-3 w-full sm:w-auto">
+              <button
                 type="button"
-                variant="gradient"
-                size="md"
-                onClick={nextStep}
-                className="shadow-sm cursor-pointer"
-              >
-                <span>Next Step</span>
-                <ArrowRight className="w-4 h-4" />
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                variant="gradient"
-                size="lg"
                 onClick={handleSubmitProfile}
-                isLoading={applyLoading}
-                icon={Lock}
-                className="shadow-md cursor-pointer hover:shadow-teal-500/25 transition-all"
+                className="flex-1 sm:flex-none px-8 py-3 rounded-full bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-bold text-sm shadow-md shadow-blue-500/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                Submit, Freeze Profile & View Rating
-              </Button>
-            )}
+                <Save className="w-4 h-4" />
+                Save Profile Changes
+              </button>
+            </div>
           </div>
-
-        </main>
+        </div>
       </div>
     </DashboardLayout>
   );
