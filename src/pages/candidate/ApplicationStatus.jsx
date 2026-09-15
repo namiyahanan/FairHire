@@ -61,6 +61,83 @@ const ApplicationStatus = () => {
   const [assessmentCompletedSuccess, setAssessmentCompletedSuccess] = useState(null);
   const [selectedSlotIndex, setSelectedSlotIndex] = useState(0);
 
+  // ── Mock Prep Pack Selection & Cheatsheet Drawer State ────────────────────
+  const [selectedMockPack, setSelectedMockPack] = useState('Accenture');
+  const [activeCheatsheetDrawer, setActiveCheatsheetDrawer] = useState(null);
+
+  const MOCK_PACK_OPTIONS = [
+    { id: 'Accenture', name: 'Accenture Series', pattern: 'Accenture Pattern Core', icon: '⚡' },
+    { id: 'Cognizant', name: 'Cognizant Track', pattern: 'GenC Next Diagnostic', icon: '🎯' },
+    { id: 'TCS', name: 'TCS Ninja/Digital', pattern: 'NQT Advanced Pattern', icon: '🚀' },
+    { id: 'Zoho', name: 'Zoho Screening', pattern: 'Systems Screening Pattern', icon: '🧩' }
+  ];
+
+  const getMockFrameworkModules = (packName) => [
+    {
+      id: 'card-1',
+      title: 'High-Frequency Logical Matrix Blueprint',
+      headerParams: `5-Min Read • ${packName || 'Accenture'} Pattern Core`,
+      headerBadgeColor: 'bg-purple-50 text-purple-700 border-purple-200',
+      category: 'Logical Reasoning & Deduction',
+      focus: 'Syllogisms, Venn Diagrams, and Seating Arrangements.',
+      impact: 'Eliminates elimination ambiguity on high-weightage deductive logic puzzles.',
+      tags: ['Syllogisms (Euler Circles)', 'Venn Inclusions', 'Circular & Linear Arrays'],
+      drawerContent: {
+        summary: `Core deductive logic formulas & step-by-step resolution patterns tailored for ${packName || 'Accenture'} assessments.`,
+        keyRules: [
+          { rule: 'All A are B + All B are C', result: 'Conclusion: All A are C (Definite True)' },
+          { rule: 'Some A are B + No B is C', result: 'Conclusion: Some A are not C (Definite True)' },
+          { rule: 'Venn Triple Intersection Rule', result: 'Total = n(A) + n(B) + n(C) - n(A∩B) - n(B∩C) - n(C∩A) + n(A∩B∩C)' },
+          { rule: 'Circular Seating Direction Strategy', result: 'Facing center = Right is anti-clockwise, Left is clockwise. Start always from bottom position.' }
+        ],
+        speedHack: 'For 8-person circular seating with alternate facing, immediately fill definite opposite-gender or fixed-anchor positions first.',
+        sampleProblem: 'Statements: All developers are engineers. Some engineers are architects.\nConclusion I: Some developers are architects. (Cannot be determined).\nConclusion II: Some engineers are developers. (Definitely True).'
+      }
+    },
+    {
+      id: 'card-2',
+      title: 'Quantitative Latency & Speed Tricks',
+      headerParams: '8-Min Read • Formula Sheet',
+      headerBadgeColor: 'bg-blue-50 text-blue-700 border-blue-200',
+      category: 'Quantitative Ability & Arithmetic',
+      focus: 'Work-time constraints, averages, and quick calculation shortcuts.',
+      impact: 'Reduces per-question solve time from 90s to under 35s using LCM & percentage fractions.',
+      tags: ['Work & Pipe LCM Method', 'Weighted Average Alligation', 'Square & Root Shortcuts'],
+      drawerContent: {
+        summary: `High-speed quantitative calculation templates & memorization sheet for ${packName || 'Accenture'}.`,
+        keyRules: [
+          { rule: 'Work & Time (A in x days, B in y days)', result: 'Total Work = LCM(x, y); Combined Rate = (Total / x) + (Total / y)' },
+          { rule: 'Average Speed Harmonic Mean', result: 'Equal distance: Avg Speed = 2xy / (x + y)' },
+          { rule: 'Percentage to Fraction Conversion', result: '1/6 = 16.67% • 1/7 = 14.28% • 1/8 = 12.5% • 1/12 = 8.33% • 1/14 = 7.14%' },
+          { rule: 'Successive Percentage Changes (x% & y%)', result: 'Net Change = (x + y + (xy / 100))%' }
+        ],
+        speedHack: 'For pipes and cisterns with leaks, treat the leak as a negative hourly efficiency and subtract directly from total input throughput.',
+        sampleProblem: 'Pipe A fills in 12h, Pipe B fills in 15h, Drain C empties in 20h.\nLCM = 60 units. Rate A = +5, Rate B = +4, Rate C = -3.\nCombined Rate = 5 + 4 - 3 = +6 units/hr.\nTotal Time = 60 / 6 = 10 hours.'
+      }
+    },
+    {
+      id: 'card-3',
+      title: 'Technical Syntax & Verbal Spotting',
+      headerParams: '10-Min Read • Bug Detection',
+      headerBadgeColor: 'bg-teal-50 text-teal-700 border-teal-200',
+      category: 'Verbal & Technical Diagnostics',
+      focus: 'Real-time error identification and technical vocabulary tracking.',
+      impact: 'Diagnoses grammar traps, contextual idioms, and programming syntax bugs with 99% accuracy.',
+      tags: ['Dangling Modifier Detection', 'Subject-Verb Collective Traps', 'Off-by-One Pointer Faults'],
+      drawerContent: {
+        summary: `Sentence correction rules and code logic inspection heuristics for ${packName || 'Accenture'}.`,
+        keyRules: [
+          { rule: 'Subject-Verb Agreement with Prepositional Phrases', result: 'The quality (Singular) of these candidate submissions is (not are) exceptional.' },
+          { rule: 'Neither / Nor and Either / Or Rule', result: 'Verb agrees strictly with the closer subject: "Neither the manager nor the engineers are present."' },
+          { rule: 'Technical Idiomatic Prepositions', result: 'Comply with • Adhere to • In accordance with • Substituted for • Prone to' },
+          { rule: 'Code Loop Invariant Rule', result: 'Check boundary conditions: 0-indexed arrays end at (length - 1); strictly avoid <= length.' }
+        ],
+        speedHack: 'Cross out parenthetical clauses and prepositional qualifiers ("along with", "as well as", "together with") to isolate the core singular/plural subject immediately.',
+        sampleProblem: 'Error Spotting: "The group of cloud architects [A] have decided [B] to deploy [C] the microservice [D]."\nCorrection: Subject is "group" (Singular) -> Error in [B], must be "has decided".'
+      }
+    }
+  ];
+
   // Sync candidate hiring store in real-time
   useEffect(() => {
     const handleHiringUpdate = () => {
@@ -635,7 +712,7 @@ const ApplicationStatus = () => {
               </span>
               <span className="text-xs font-bold text-teal-300 flex items-center gap-1">
                 <BookOpen className="w-3.5 h-3.5" />
-                {currentApp.courses?.length || 2} Courses Ready
+                3 Framework Modules Ready
               </span>
             </div>
           </div>
@@ -1135,79 +1212,203 @@ const ApplicationStatus = () => {
           </div>
         </section>
 
-        {/* ================= 4. CURATED COURSES TO CRACK THIS APPLIED ROLE ================= */}
-        {currentApp.courses && currentApp.courses.length > 0 && (
-          <section className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-6 border-b border-slate-100">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-lg sm:text-xl font-extrabold text-navy-900 tracking-tight">
-                    Curated Courses to Crack {currentApp.jobTitle}
-                  </h3>
-                  <span className="text-xs font-bold text-purple-700 bg-purple-50 border border-purple-200 px-2.5 py-0.5 rounded-full">
-                    Recommended Prep
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Prepare for the upcoming technical screen with course syllabi tailored to {currentApp.company}'s evaluation standards.
-                </p>
+        {/* ================= 4. STRUCTURED FRAMEWORK PREPARATION MODULES ================= */}
+        <section className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-100">
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg sm:text-xl font-black text-navy-900 tracking-tight">
+                  Structured Framework Preparation Modules
+                </h3>
+                <span className="text-xs font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2.5 py-0.5 rounded-full">
+                  Mock Prep Pack Active
+                </span>
               </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Calibrated cheatsheet blueprints and speed heuristics aligned with 2025-2026 hiring patterns.
+              </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-6">
-              {currentApp.courses.map((course, cidx) => (
-                <div
-                  key={cidx}
-                  className="p-5 rounded-2xl bg-slate-50 border border-slate-200 hover:border-teal-400 hover:bg-white hover:shadow-md transition-all flex flex-col justify-between group"
+            {/* Mock Prep Pack Selector Pills */}
+            <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-2xl bg-slate-100 border border-slate-200 text-xs font-bold">
+              {MOCK_PACK_OPTIONS.map((pack) => (
+                <button
+                  key={pack.id}
+                  type="button"
+                  onClick={() => setSelectedMockPack(pack.id)}
+                  className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
+                    selectedMockPack === pack.id
+                      ? 'bg-navy-900 text-white shadow-sm'
+                      : 'text-slate-600 hover:text-navy-900 hover:bg-slate-200/60'
+                  }`}
                 >
-                  <div>
-                    <div className="flex items-center justify-between gap-2 mb-2.5">
-                      <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-md border ${course.badgeColor}`}>
-                        {course.provider}
-                      </span>
-                      <span className="text-[11px] font-semibold text-slate-400">
-                        {course.duration}
-                      </span>
-                    </div>
-
-                    <h4 className="text-sm sm:text-base font-extrabold text-navy-900 group-hover:text-teal-600 transition-colors">
-                      {course.title}
-                    </h4>
-
-                    <p className="text-xs text-teal-800 font-medium leading-relaxed mt-2 p-2.5 rounded-xl bg-teal-50/70 border border-teal-100">
-                      🎯 <strong>Interview Impact:</strong> {course.interviewBenefit}
-                    </p>
-
-                    <div className="flex flex-wrap gap-1.5 mt-3">
-                      {course.topics?.map((topic, tidx) => (
-                        <span
-                          key={tidx}
-                          className="text-[10px] font-semibold text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200"
-                        >
-                          {topic}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="mt-5 pt-3 border-t border-slate-200 flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-500">
-                      Level: <span className="text-navy-900">{course.level}</span>
-                    </span>
-                    
-                    <button
-                      type="button"
-                      onClick={() => alert(`Enrolling in syllabus for "${course.title}". Start practicing!`)}
-                      className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-                    >
-                      <PlayCircle className="w-3.5 h-3.5" />
-                      <span>Start Course</span>
-                    </button>
-                  </div>
-                </div>
+                  <span>{pack.icon}</span>
+                  <span>{pack.name}</span>
+                </button>
               ))}
             </div>
-          </section>
+          </div>
+
+          {/* The 3 Structured Framework Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {getMockFrameworkModules(selectedMockPack).map((module) => (
+              <div
+                key={module.id}
+                className="p-5 rounded-2xl bg-slate-50 border border-slate-200 hover:border-teal-400 hover:bg-white hover:shadow-lg transition-all duration-300 flex flex-col justify-between group"
+              >
+                <div className="space-y-3">
+                  {/* Header Parameters Badge */}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border ${module.headerBadgeColor}`}>
+                      {module.headerParams}
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      Blueprint
+                    </span>
+                  </div>
+
+                  {/* Card Title */}
+                  <h4 className="text-base font-black text-navy-900 group-hover:text-teal-700 transition-colors leading-snug">
+                    {module.title}
+                  </h4>
+
+                  {/* Focus Parameters Box */}
+                  <div className="p-3 rounded-xl bg-white border border-slate-200/90 text-xs text-slate-700 space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                      Focus Parameters:
+                    </span>
+                    <p className="font-semibold text-slate-800 leading-snug">
+                      {module.focus}
+                    </p>
+                  </div>
+
+                  {/* Tags */}
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {module.tags.map((tag, tidx) => (
+                      <span
+                        key={tidx}
+                        className="text-[10px] font-medium text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Action Button: 📖 Open Cheatsheet Drawer */}
+                <div className="mt-5 pt-3 border-t border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setActiveCheatsheetDrawer(module)}
+                    className="w-full py-2.5 px-4 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                  >
+                    <span>📖 Open Cheatsheet Drawer</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ================= CHEATSHEET SLIDE-IN DRAWER MODAL ================= */}
+        {activeCheatsheetDrawer && (
+          <div className="fixed inset-0 z-50 bg-navy-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-2xl w-full p-6 sm:p-8 relative overflow-hidden my-8 space-y-6">
+              
+              {/* Top Header & Close Button */}
+              <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
+                <div>
+                  <span className={`inline-block text-[11px] font-bold px-2.5 py-0.5 rounded-lg border mb-2 ${activeCheatsheetDrawer.headerBadgeColor}`}>
+                    {activeCheatsheetDrawer.headerParams}
+                  </span>
+                  <h3 className="text-xl font-black text-navy-900 tracking-tight">
+                    {activeCheatsheetDrawer.title}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {activeCheatsheetDrawer.drawerContent.summary}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveCheatsheetDrawer(null)}
+                  className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Focus Summary Box */}
+              <div className="p-3.5 rounded-2xl bg-teal-50/70 border border-teal-200 text-xs text-teal-950 space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700">
+                  Targeted Focus Topics:
+                </span>
+                <p className="font-bold text-teal-900">
+                  {activeCheatsheetDrawer.focus}
+                </p>
+              </div>
+
+              {/* Key Rules & Formula Breakdown */}
+              <div className="space-y-2.5">
+                <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
+                  Key Rules & High-Speed Formulas
+                </h4>
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  {activeCheatsheetDrawer.drawerContent.keyRules.map((kr, idx) => (
+                    <div key={idx} className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1">
+                      <strong className="text-navy-900 font-bold block">{kr.rule}</strong>
+                      <p className="text-teal-800 font-mono text-[11px] bg-white p-2 rounded-lg border border-slate-200">
+                        {kr.result}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Speed Hack Banner */}
+              <div className="p-3.5 rounded-2xl bg-purple-50/80 border border-purple-200 text-xs text-purple-950 space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-purple-700 flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Speed Hack & Elimination Strategy</span>
+                </span>
+                <p className="text-slate-700 text-[11px] leading-relaxed">
+                  {activeCheatsheetDrawer.drawerContent.speedHack}
+                </p>
+              </div>
+
+              {/* Sample Problem Walkthrough */}
+              <div className="space-y-1.5">
+                <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
+                  Worked Sample Pattern
+                </h4>
+                <div className="p-3.5 rounded-2xl bg-slate-900 text-emerald-300 font-mono text-[11px] leading-relaxed whitespace-pre-line shadow-inner">
+                  {activeCheatsheetDrawer.drawerContent.sampleProblem}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setActiveCheatsheetDrawer(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 font-bold text-xs cursor-pointer"
+                >
+                  Close Cheatsheet
+                </button>
+
+                <Link to="/candidate/aptitude">
+                  <button
+                    type="button"
+                    className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer"
+                  >
+                    <span>Practice Pattern in Mock Exam</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </Link>
+              </div>
+
+            </div>
+          </div>
         )}
 
         {/* ================= 5. COMPLIANCE & BLIND EVALUATION GUARANTEE ================= */}
