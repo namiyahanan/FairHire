@@ -72,71 +72,269 @@ const ApplicationStatus = () => {
     { id: 'Zoho', name: 'Zoho Screening', pattern: 'Systems Screening Pattern', icon: '🧩' }
   ];
 
-  const getMockFrameworkModules = (packName) => [
-    {
-      id: 'card-1',
-      title: 'High-Frequency Logical Matrix Blueprint',
-      headerParams: `5-Min Read • ${packName || 'Accenture'} Pattern Core`,
-      headerBadgeColor: 'bg-purple-50 text-purple-700 border-purple-200',
-      category: 'Logical Reasoning & Deduction',
-      focus: 'Syllogisms, Venn Diagrams, and Seating Arrangements.',
-      impact: 'Eliminates elimination ambiguity on high-weightage deductive logic puzzles.',
-      tags: ['Syllogisms (Euler Circles)', 'Venn Inclusions', 'Circular & Linear Arrays'],
-      drawerContent: {
-        summary: `Core deductive logic formulas & step-by-step resolution patterns tailored for ${packName || 'Accenture'} assessments.`,
-        keyRules: [
-          { rule: 'All A are B + All B are C', result: 'Conclusion: All A are C (Definite True)' },
-          { rule: 'Some A are B + No B is C', result: 'Conclusion: Some A are not C (Definite True)' },
-          { rule: 'Venn Triple Intersection Rule', result: 'Total = n(A) + n(B) + n(C) - n(A∩B) - n(B∩C) - n(C∩A) + n(A∩B∩C)' },
-          { rule: 'Circular Seating Direction Strategy', result: 'Facing center = Right is anti-clockwise, Left is clockwise. Start always from bottom position.' }
-        ],
-        speedHack: 'For 8-person circular seating with alternate facing, immediately fill definite opposite-gender or fixed-anchor positions first.',
-        sampleProblem: 'Statements: All developers are engineers. Some engineers are architects.\nConclusion I: Some developers are architects. (Cannot be determined).\nConclusion II: Some engineers are developers. (Definitely True).'
-      }
-    },
-    {
-      id: 'card-2',
-      title: 'Quantitative Latency & Speed Tricks',
-      headerParams: '8-Min Read • Formula Sheet',
-      headerBadgeColor: 'bg-blue-50 text-blue-700 border-blue-200',
-      category: 'Quantitative Ability & Arithmetic',
-      focus: 'Work-time constraints, averages, and quick calculation shortcuts.',
-      impact: 'Reduces per-question solve time from 90s to under 35s using LCM & percentage fractions.',
-      tags: ['Work & Pipe LCM Method', 'Weighted Average Alligation', 'Square & Root Shortcuts'],
-      drawerContent: {
-        summary: `High-speed quantitative calculation templates & memorization sheet for ${packName || 'Accenture'}.`,
-        keyRules: [
-          { rule: 'Work & Time (A in x days, B in y days)', result: 'Total Work = LCM(x, y); Combined Rate = (Total / x) + (Total / y)' },
-          { rule: 'Average Speed Harmonic Mean', result: 'Equal distance: Avg Speed = 2xy / (x + y)' },
-          { rule: 'Percentage to Fraction Conversion', result: '1/6 = 16.67% • 1/7 = 14.28% • 1/8 = 12.5% • 1/12 = 8.33% • 1/14 = 7.14%' },
-          { rule: 'Successive Percentage Changes (x% & y%)', result: 'Net Change = (x + y + (xy / 100))%' }
-        ],
-        speedHack: 'For pipes and cisterns with leaks, treat the leak as a negative hourly efficiency and subtract directly from total input throughput.',
-        sampleProblem: 'Pipe A fills in 12h, Pipe B fills in 15h, Drain C empties in 20h.\nLCM = 60 units. Rate A = +5, Rate B = +4, Rate C = -3.\nCombined Rate = 5 + 4 - 3 = +6 units/hr.\nTotal Time = 60 / 6 = 10 hours.'
-      }
-    },
-    {
-      id: 'card-3',
-      title: 'Technical Syntax & Verbal Spotting',
-      headerParams: '10-Min Read • Bug Detection',
-      headerBadgeColor: 'bg-teal-50 text-teal-700 border-teal-200',
-      category: 'Verbal & Technical Diagnostics',
-      focus: 'Real-time error identification and technical vocabulary tracking.',
-      impact: 'Diagnoses grammar traps, contextual idioms, and programming syntax bugs with 99% accuracy.',
-      tags: ['Dangling Modifier Detection', 'Subject-Verb Collective Traps', 'Off-by-One Pointer Faults'],
-      drawerContent: {
-        summary: `Sentence correction rules and code logic inspection heuristics for ${packName || 'Accenture'}.`,
-        keyRules: [
-          { rule: 'Subject-Verb Agreement with Prepositional Phrases', result: 'The quality (Singular) of these candidate submissions is (not are) exceptional.' },
-          { rule: 'Neither / Nor and Either / Or Rule', result: 'Verb agrees strictly with the closer subject: "Neither the manager nor the engineers are present."' },
-          { rule: 'Technical Idiomatic Prepositions', result: 'Comply with • Adhere to • In accordance with • Substituted for • Prone to' },
-          { rule: 'Code Loop Invariant Rule', result: 'Check boundary conditions: 0-indexed arrays end at (length - 1); strictly avoid <= length.' }
-        ],
-        speedHack: 'Cross out parenthetical clauses and prepositional qualifiers ("along with", "as well as", "together with") to isolate the core singular/plural subject immediately.',
-        sampleProblem: 'Error Spotting: "The group of cloud architects [A] have decided [B] to deploy [C] the microservice [D]."\nCorrection: Subject is "group" (Singular) -> Error in [B], must be "has decided".'
-      }
+  const getMockFrameworkModules = (packName) => {
+    if (packName === 'Cognizant') {
+      return [
+        {
+          id: 'card-1',
+          title: 'GenC Next Analytical & Automata Blueprint',
+          headerParams: '5-Min Read • Cognizant GenC Core',
+          headerBadgeColor: 'bg-purple-50 text-purple-700 border-purple-200',
+          category: 'Automata & Analytical Deduction',
+          focus: 'Flowchart logic, automata execution, and directional matrices.',
+          impact: 'Solves complex decision-tree questions with zero backtracking delay.',
+          tags: ['Flowchart Logic Blocks', 'Finite Automata', 'Directional Compass Grid'],
+          drawerContent: {
+            summary: 'Cognizant GenC Next diagnostic flowchart patterns and recursive loops.',
+            keyRules: [
+              { rule: 'Automata Loop Termination Invariant', result: 'Count variable state increments; verify exit branch condition on odd/even modulo.' },
+              { rule: 'Decision Flowchart Diamond Rule', result: 'Trace both TRUE and FALSE paths; look for missing connector endpoints.' },
+              { rule: 'Directional Displacement Vector', result: 'Calculate net horizontal (East-West) and net vertical (North-South) components using Pythagoras.' }
+            ],
+            speedHack: 'In Cognizant flowchart questions, eliminate choices that lack parity with boundary condition outputs.',
+            sampleProblem: 'If start = 2, step = start * 3 + 1. Repeat while step < 50.\nPass 1: 7, Pass 2: 22, Pass 3: 67 (Loop terminates). Output = 67.'
+          }
+        },
+        {
+          id: 'card-2',
+          title: 'Cognizant Cloud & Numerical Diagnostics',
+          headerParams: '8-Min Read • Formula Sheet',
+          headerBadgeColor: 'bg-blue-50 text-blue-700 border-blue-200',
+          category: 'Quantitative Diagnostics',
+          focus: 'Probability, permutations, and multi-tier data sufficiency.',
+          impact: 'Eliminates calculation churn on complex probability questions.',
+          tags: ['Conditional Probability', 'Combinatorics Matrix', 'Data Sufficiency'],
+          drawerContent: {
+            summary: 'High-frequency quantitative shortcuts tailored for Cognizant screening.',
+            keyRules: [
+              { rule: 'Combinations nCr Selection', result: 'nCr = n! / (r! * (n - r)!); Complement rule: nCr = nC(n - r)' },
+              { rule: 'Independent Events Probability', result: 'P(A and B) = P(A) * P(B); At least one = 1 - P(None)' },
+              { rule: 'Data Sufficiency Evaluation Protocol', result: 'Check Statement (1) alone -> (2) alone -> Combined (1 + 2) systematically.' }
+            ],
+            speedHack: 'For "at least one" probability questions, always compute the complement (1 - none happening) for 5x faster calculation.',
+            sampleProblem: 'Bag has 4 Red, 6 Blue balls. 2 balls picked.\nP(Both Blue) = (6C2) / (10C2) = 15 / 45 = 1/3.'
+          }
+        },
+        {
+          id: 'card-3',
+          title: 'Technical Communication & Grammar Traps',
+          headerParams: '10-Min Read • Bug Detection',
+          headerBadgeColor: 'bg-teal-50 text-teal-700 border-teal-200',
+          category: 'Verbal Diagnostics',
+          focus: 'Sentence reconstruction, vocabulary in context, and active-passive shifts.',
+          impact: 'Avoids negative marking on sentence correction and reading inference.',
+          tags: ['Contextual Word Choice', 'Tense Consistency', 'Parallel Construction'],
+          drawerContent: {
+            summary: 'Cognizant verbal pattern guidelines and sentence correction rules.',
+            keyRules: [
+              { rule: 'Parallelism Rule in Lists', result: 'Items joined by "and/or" must share identical grammatical form (all gerunds or all infinitives).' },
+              { rule: 'Subjunctive Mood Requirement', result: '"If I were (not was) the team lead, I would approve the sprint."' },
+              { rule: 'Confusing Homophones in Tech', result: 'Complement (complete) vs Compliment (praise) • Principle (rule) vs Principal (chief)' }
+            ],
+            speedHack: 'Check the subject and tense of the first clause; 90% of error spotting occurs in verb agreement with delayed subjects.',
+            sampleProblem: 'Identify error: "The engineer likes coding, debugging, and to deploy."\nCorrection: Must be "and deploying" for parallel structure.'
+          }
+        }
+      ];
     }
-  ];
+
+    if (packName === 'TCS') {
+      return [
+        {
+          id: 'card-1',
+          title: 'TCS NQT Advanced Reasoning Matrix',
+          headerParams: '5-Min Read • TCS NQT Pattern',
+          headerBadgeColor: 'bg-purple-50 text-purple-700 border-purple-200',
+          category: 'Advanced Cognitive Logic',
+          focus: 'Data interpretation, statement-assumptions, and blood relations.',
+          impact: 'Solves NQT advanced cognitive questions within the strict per-section timer.',
+          tags: ['Family Tree Graphing', 'Assumption Validity', 'Data Interpretation Tables'],
+          drawerContent: {
+            summary: 'TCS NQT cognitive reasoning matrix & deduction rules.',
+            keyRules: [
+              { rule: 'Blood Relations Standard Notation', result: '+ for Male, - for Female, = for Married, | for Generation descent.' },
+              { rule: 'Statement & Assumption Validity', result: 'Assumptions must be implicitly taken for granted by author, without external bias.' },
+              { rule: 'Data Table Percentage Calculation', result: 'Growth Rate = ((Current - Previous) / Previous) * 100%' }
+            ],
+            speedHack: 'Draw family trees vertically with gender signs on top of nodes to eliminate generational confusion instantly.',
+            sampleProblem: '"Pointing to a photograph, Rohit said, She is the daughter of my grandfather only son."\nGrandfather only son = Rohit father. Daughter = Rohit sister.'
+          }
+        },
+        {
+          id: 'card-2',
+          title: 'TCS Advanced Numerical & Speed Calculus',
+          headerParams: '8-Min Read • Formula Sheet',
+          headerBadgeColor: 'bg-blue-50 text-blue-700 border-blue-200',
+          category: 'Advanced Quant & Number Systems',
+          focus: 'Number systems, geometric series, and modular arithmetic.',
+          impact: 'Solves high-weightage TCS digital numerical problems with clean formulas.',
+          tags: ['Remainder Theorem (Fermat)', 'AP/GP Series Sum', 'Geometry & Mensuration'],
+          drawerContent: {
+            summary: 'TCS NQT advanced mathematics formulas & shortcut catalogue.',
+            keyRules: [
+              { rule: 'Fermat Little Theorem for Remainders', result: 'If p is prime, (a^(p-1)) mod p = 1' },
+              { rule: 'Sum of Infinite GP series (|r| < 1)', result: 'S_inf = a / (1 - r)' },
+              { rule: 'Co-primes and Euler Totient', result: 'phi(p) = p - 1 for prime p; phi(p*q) = (p-1)*(q-1)' }
+            ],
+            speedHack: 'In modular arithmetic with large powers, divide the exponent by the totient of the divisor to simplify in 5 seconds.',
+            sampleProblem: 'Find remainder when 2^100 is divided by 101 (101 is prime).\nBy Fermat Little Theorem: 2^(101-1) mod 101 = 2^100 mod 101 = 1.'
+          }
+        },
+        {
+          id: 'card-3',
+          title: 'Raw Coding Syntax & Compiler Diagnostics',
+          headerParams: '10-Min Read • Bug Detection',
+          headerBadgeColor: 'bg-teal-50 text-teal-700 border-teal-200',
+          category: 'C/C++ & DSA Diagnostics',
+          focus: 'Recursion tree tracing, stack overflow, and bitwise operations.',
+          impact: 'Guarantees full test case pass in TCS Digital coding assessment.',
+          tags: ['Recursion Call Stack', 'Bitwise Masks (&, |, ^)', 'String Immutability'],
+          drawerContent: {
+            summary: 'TCS Hands-on coding and pseudo-code tracing blueprint.',
+            keyRules: [
+              { rule: 'Bitwise Power of 2 Check', result: '(n > 0) && ((n & (n - 1)) === 0) evaluates true for exact powers of 2.' },
+              { rule: 'Recursion Base Case Check', result: 'Always verify base case condition is reachable before recursive invocation.' },
+              { rule: 'Array Frequency Hashing', result: 'Use 256-size static array for ASCII lookup in O(1) space and time.' }
+            ],
+            speedHack: 'To find single non-repeating element in an array where all others appear twice, XOR (^) all elements together in O(N).',
+            sampleProblem: 'int arr[] = {4, 1, 2, 1, 2};\nint x = 0; for(int n : arr) x ^= n;\nOutput: x = 4 (All pairs cancel out).'
+          }
+        }
+      ];
+    }
+
+    if (packName === 'Zoho') {
+      return [
+        {
+          id: 'card-1',
+          title: 'Zoho Systems Logic & Pattern Matrix',
+          headerParams: '5-Min Read • Zoho Screening',
+          headerBadgeColor: 'bg-purple-50 text-purple-700 border-purple-200',
+          category: 'Systems Logic & Matrices',
+          focus: 'Series completion, matrix puzzles, and abstract reasoning.',
+          impact: 'Cracks Zoho Level-1 screening puzzles with high accuracy.',
+          tags: ['Alphanumeric Series', 'Matrix Spiral Logic', 'Abstract Number Grids'],
+          drawerContent: {
+            summary: 'Zoho round 1 pattern recognition formulas and matrix layouts.',
+            keyRules: [
+              { rule: 'Double Difference Series', result: 'When difference is not constant, compute difference of differences (D2).' },
+              { rule: 'Fibonacci-Variant Pattern', result: 'Each term = (Previous 2 terms * multiplier) + constant offset.' },
+              { rule: 'Matrix Determinant & Cross Patterns', result: 'Check row sums, column multiplications, or opposite diagonal products.' }
+            ],
+            speedHack: 'In Zoho number series, look at alternating terms (odd indices vs even indices) first before complex polynomial checks.',
+            sampleProblem: 'Series: 2, 3, 8, 27, 112, ?\nPattern: *1+1, *2+2, *3+3, *4+4, *5+5 -> 112 * 5 + 5 = 565.'
+          }
+        },
+        {
+          id: 'card-2',
+          title: 'Zoho Level-1 Numerical & Speed Heuristics',
+          headerParams: '8-Min Read • Formula Sheet',
+          headerBadgeColor: 'bg-blue-50 text-blue-700 border-blue-200',
+          category: 'Basic Engineering Mathematics',
+          focus: 'Profit & loss, ratio proportions, and time-distance physics.',
+          impact: 'Accelerates speed on classic arithmetic questions without calculator.',
+          tags: ['Ratio Proportions', 'Relative Speed (Trains/Boats)', 'Discount & Markup'],
+          drawerContent: {
+            summary: 'Zoho Level 1 arithmetic shortcuts and mental math formulas.',
+            keyRules: [
+              { rule: 'Relative Speed (Opposite Direction)', result: 'S_rel = Speed_A + Speed_B; Same Direction = |Speed_A - Speed_B|' },
+              { rule: 'Markup and Discount Formula', result: 'Profit% = Markup% - Discount% - (Markup * Discount / 100)' },
+              { rule: 'Boats & Streams Physics', result: 'Downstream = u + v, Upstream = u - v; Boat speed in still water = (Down + Up) / 2' }
+            ],
+            speedHack: 'To cross a moving platform or train in opposite directions, add their lengths together and divide by sum of their speeds.',
+            sampleProblem: 'Train 100m at 72 km/h (20 m/s) crosses Train 150m at 36 km/h (10 m/s) in opposite direction.\nTime = (100 + 150) / (20 + 10) = 250 / 30 = 8.33 seconds.'
+          }
+        },
+        {
+          id: 'card-3',
+          title: 'Raw Technical Troubleshooting & C-Pointers',
+          headerParams: '10-Min Read • Bug Detection',
+          headerBadgeColor: 'bg-teal-50 text-teal-700 border-teal-200',
+          category: 'C-Language Systems Diagnostics',
+          focus: 'Memory leaks, pointer arithmetic, and bitwise operators.',
+          impact: 'Eliminates mistakes in Zoho technical round pointer & recursion questions.',
+          tags: ['Double Pointers (**ptr)', 'Dynamic malloc/free', 'Operator Precedence'],
+          drawerContent: {
+            summary: 'Zoho Level 2 C-programming pointer mastery and syntax cheat sheet.',
+            keyRules: [
+              { rule: 'Pointer Increment Arithmetic', result: 'ptr + 1 increases memory address by sizeof(*ptr) bytes.' },
+              { rule: 'String Literals vs Arrays', result: 'char *s = "hello" (Read-only segment); char s[] = "hello" (Stack mutable).' },
+              { rule: 'Precedence: *ptr++ vs (*ptr)++', result: '*ptr++ dereferences then advances pointer; (*ptr)++ dereferences then increments value.' }
+            ],
+            speedHack: 'Remember: In C, `a[i]` is identical to `*(a + i)` which is also identical to `i[a]`.',
+            sampleProblem: 'char str[] = "ZOHO"; char *p = str;\nprintf("%c", *p++); // Prints "Z"\nprintf("%c", *p);   // Prints "O"'
+          }
+        }
+      ];
+    }
+
+    // Default: Accenture Mock Series
+    return [
+      {
+        id: 'card-1',
+        title: 'High-Frequency Logical Matrix Blueprint',
+        headerParams: `5-Min Read • ${packName || 'Accenture'} Pattern Core`,
+        headerBadgeColor: 'bg-purple-50 text-purple-700 border-purple-200',
+        category: 'Logical Reasoning & Deduction',
+        focus: 'Syllogisms, Venn Diagrams, and Seating Arrangements.',
+        impact: 'Eliminates elimination ambiguity on high-weightage deductive logic puzzles.',
+        tags: ['Syllogisms (Euler Circles)', 'Venn Inclusions', 'Circular & Linear Arrays'],
+        drawerContent: {
+          summary: `Core deductive logic formulas & step-by-step resolution patterns tailored for ${packName || 'Accenture'} assessments.`,
+          keyRules: [
+            { rule: 'All A are B + All B are C', result: 'Conclusion: All A are C (Definite True)' },
+            { rule: 'Some A are B + No B is C', result: 'Conclusion: Some A are not C (Definite True)' },
+            { rule: 'Venn Triple Intersection Rule', result: 'Total = n(A) + n(B) + n(C) - n(A∩B) - n(B∩C) - n(C∩A) + n(A∩B∩C)' },
+            { rule: 'Circular Seating Direction Strategy', result: 'Facing center = Right is anti-clockwise, Left is clockwise. Start always from bottom position.' }
+          ],
+          speedHack: 'For 8-person circular seating with alternate facing, immediately fill definite opposite-gender or fixed-anchor positions first.',
+          sampleProblem: 'Statements: All developers are engineers. Some engineers are architects.\nConclusion I: Some developers are architects. (Cannot be determined).\nConclusion II: Some engineers are developers. (Definitely True).'
+        }
+      },
+      {
+        id: 'card-2',
+        title: 'Quantitative Latency & Speed Tricks',
+        headerParams: '8-Min Read • Formula Sheet',
+        headerBadgeColor: 'bg-blue-50 text-blue-700 border-blue-200',
+        category: 'Quantitative Ability & Arithmetic',
+        focus: 'Work-time constraints, averages, and quick calculation shortcuts.',
+        impact: 'Reduces per-question solve time from 90s to under 35s using LCM & percentage fractions.',
+        tags: ['Work & Pipe LCM Method', 'Weighted Average Alligation', 'Square & Root Shortcuts'],
+        drawerContent: {
+          summary: `High-speed quantitative calculation templates & memorization sheet for ${packName || 'Accenture'}.`,
+          keyRules: [
+            { rule: 'Work & Time (A in x days, B in y days)', result: 'Total Work = LCM(x, y); Combined Rate = (Total / x) + (Total / y)' },
+            { rule: 'Average Speed Harmonic Mean', result: 'Equal distance: Avg Speed = 2xy / (x + y)' },
+            { rule: 'Percentage to Fraction Conversion', result: '1/6 = 16.67% • 1/7 = 14.28% • 1/8 = 12.5% • 1/12 = 8.33% • 1/14 = 7.14%' },
+            { rule: 'Successive Percentage Changes (x% & y%)', result: 'Net Change = (x + y + (xy / 100))%' }
+          ],
+          speedHack: 'For pipes and cisterns with leaks, treat the leak as a negative hourly efficiency and subtract directly from total input throughput.',
+          sampleProblem: 'Pipe A fills in 12h, Pipe B fills in 15h, Drain C empties in 20h.\nLCM = 60 units. Rate A = +5, Rate B = +4, Rate C = -3.\nCombined Rate = 5 + 4 - 3 = +6 units/hr.\nTotal Time = 60 / 6 = 10 hours.'
+        }
+      },
+      {
+        id: 'card-3',
+        title: 'Technical Syntax & Verbal Spotting',
+        headerParams: '10-Min Read • Bug Detection',
+        headerBadgeColor: 'bg-teal-50 text-teal-700 border-teal-200',
+        category: 'Verbal & Technical Diagnostics',
+        focus: 'Real-time error identification and technical vocabulary tracking.',
+        impact: 'Diagnoses grammar traps, contextual idioms, and programming syntax bugs with 99% accuracy.',
+        tags: ['Dangling Modifier Detection', 'Subject-Verb Collective Traps', 'Off-by-One Pointer Faults'],
+        drawerContent: {
+          summary: `Sentence correction rules and code logic inspection heuristics for ${packName || 'Accenture'}.`,
+          keyRules: [
+            { rule: 'Subject-Verb Agreement with Prepositional Phrases', result: 'The quality (Singular) of these candidate submissions is (not are) exceptional.' },
+            { rule: 'Neither / Nor and Either / Or Rule', result: 'Verb agrees strictly with the closer subject: "Neither the manager nor the engineers are present."' },
+            { rule: 'Technical Idiomatic Prepositions', result: 'Comply with • Adhere to • In accordance with • Substituted for • Prone to' },
+            { rule: 'Code Loop Invariant Rule', result: 'Check boundary conditions: 0-indexed arrays end at (length - 1); strictly avoid <= length.' }
+          ],
+          speedHack: 'Cross out parenthetical clauses and prepositional qualifiers ("along with", "as well as", "together with") to isolate the core singular/plural subject immediately.',
+          sampleProblem: 'Error Spotting: "The group of cloud architects [A] have decided [B] to deploy [C] the microservice [D]."\nCorrection: Subject is "group" (Singular) -> Error in [B], must be "has decided".'
+        }
+      }
+    ];
+  };
 
   // Sync candidate hiring store in real-time
   useEffect(() => {
