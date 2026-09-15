@@ -185,6 +185,21 @@ const CandidateAptitude = () => {
     }
   };
 
+  // Re-verify camera snapshot handler
+  const handleReverifySnapshot = async () => {
+    setIsCapturing(true);
+    try {
+      await activateHardwareProctoring();
+      setFaceVerified(true);
+    } catch (err) {
+      console.warn("Re-verify snapshot check:", err);
+    } finally {
+      setTimeout(() => {
+        setIsCapturing(false);
+      }, 700);
+    }
+  };
+
   // Re-bind video streams whenever phase changes or stream is available
   useEffect(() => {
     if (streamRef.current) {
@@ -246,6 +261,9 @@ const CandidateAptitude = () => {
     return () => clearInterval(gazeInterval);
   }, [phase, eyeTrackingActive, gazeDirection]);
 
+  // ── Fullscreen Proctoring State & Warning Banner ───────────────────────────
+  const [fullscreenWarning, setFullscreenWarning] = useState(false);
+
   // ── Fullscreen & Anti-Cheat Malpractice Listeners ───────────────────────────
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -257,10 +275,12 @@ const CandidateAptitude = () => {
       setIsFullscreen(inFullscreen);
 
       if (!inFullscreen && phaseRef.current === 'active') {
+        setFullscreenWarning(true);
         setMalpracticeCount((prev) => prev + 1);
-        setCurrentMalpracticeReason('Candidate rejected or exited full-screen mode (Anti-cheat triggered)');
-        setShowMalpracticeAlert(true);
-        notifyRecruiterOfMalpractice('Candidate rejected or exited full-screen mode (Anti-cheat triggered)');
+        setCurrentMalpracticeReason('Warning: Fullscreen mode exited (Esc key or window focus lost)');
+        notifyRecruiterOfMalpractice('Warning: Candidate exited full-screen mode');
+      } else if (inFullscreen) {
+        setFullscreenWarning(false);
       }
     };
 
@@ -333,33 +353,39 @@ const CandidateAptitude = () => {
     };
   }, [notifyRecruiterOfMalpractice]);
 
-  // ── Lock Environment & Launch Assessment Trigger ──────────────────────────
-  const handleLockAndStart = async () => {
-    if (!rulesAgreed) return;
+  // ── Fullscreen Proctored Exam Launcher ────────────────────────────────────
+  function launchProctoredExam() {
+    // Trigger audio & camera proctoring stream
+    activateHardwareProctoring().catch(() => {});
 
-    try {
-      const stream = await activateHardwareProctoring();
-      if (!stream) {
-        return; // Permission was denied or error occurred
-      }
+    const examElement = document.documentElement;
+    if (examElement && examElement.requestFullscreen) {
+      examElement.requestFullscreen()
+        .then(() => {
+          setIsFullscreen(true);
+          setFullscreenWarning(false);
+          setCurrentIndex(0);
+          setAnswers({});
+          setFlaggedQuestions({});
+          setVisitedQuestions({ 1: true });
+          setTotalTimeRemaining(2700); // 45 minutes
+          setMalpracticeCount(0);
+          setPhase('active');
 
-      setIsFullscreen(true);
-      setCurrentIndex(0);
-      setAnswers({});
-      setFlaggedQuestions({});
-      setVisitedQuestions({ 1: true });
-      setTotalTimeRemaining(2700); // 45 minutes
-      setMalpracticeCount(0);
+          const examQuestions = document.getElementById('exam-questions');
+          if (examQuestions) examQuestions.classList.remove('hidden');
+          const examStartScreen = document.getElementById('exam-start-screen');
+          if (examStartScreen) examStartScreen.classList.add('hidden');
+        })
+        .catch(() => {
+          alert("You must allow fullscreen mode to take this assessment.");
+        });
+    } else {
       setPhase('active');
-
-      const el = document.documentElement;
-      if (el.requestFullscreen) {
-        el.requestFullscreen().catch(() => {});
-      }
-    } catch (err) {
-      console.warn("Fullscreen/hardware lock error:", err);
     }
-  };
+  }
+
+  const handleLockAndStart = launchProctoredExam;
 
   // ── Phase 2 Countdown Timer (45:00) ────────────────────────────────────────
   useEffect(() => {
@@ -493,59 +519,110 @@ const CandidateAptitude = () => {
   };
 
   // ===========================================================================
-  // RENDER PHASE 2 (ACTIVE FULL-SCREEN DOMINANCE 3-ZONE MATRIX)
+  // RENDER PHASE 2 (ACTIVE FULL-SCREEN NEAT ENTERPRISE 3-ZONE MATRIX)
   // ===========================================================================
   if (phase === 'active') {
     return (
-      <div className="fixed inset-0 z-50 bg-slate-950 text-slate-100 flex flex-col select-none overflow-hidden font-sans">
+      <div id="exam-questions" className="fixed inset-0 z-50 bg-slate-100 text-slate-900 flex flex-col select-none overflow-hidden font-sans">
         
+        {/* ── MANDATORY FULLSCREEN BARRIER (If Fullscreen is not active) ─────── */}
+        {!isFullscreen && (
+          <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 max-w-md w-full text-center space-y-5 shadow-2xl animate-fadeIn">
+              <div className="w-16 h-16 rounded-2xl bg-teal-50 text-teal-600 border border-teal-200 flex items-center justify-center mx-auto shadow-xs">
+                <Maximize2 className="w-8 h-8" />
+              </div>
+              <div className="space-y-1.5">
+                <h3 className="text-xl font-black text-navy-900 tracking-tight">
+                  Fullscreen Mode is Mandatory
+                </h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  FairHire's AI Proctoring Sandbox requires full-screen mode throughout this assessment to guarantee fairness and security.
+                </p>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-left text-xs text-slate-700 space-y-1.5">
+                <div className="flex items-center gap-1.5 font-bold text-navy-900">
+                  <ShieldAlert className="w-4 h-4 text-teal-600" />
+                  <span>Proctored Session Protocol:</span>
+                </div>
+                <ul className="text-[11px] text-slate-600 space-y-1 list-disc list-inside">
+                  <li>The exam window must remain in full-screen.</li>
+                  <li>Tab switching or exiting full-screen logs an instant malpractice flag.</li>
+                </ul>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const el = document.documentElement;
+                  if (el.requestFullscreen) {
+                    el.requestFullscreen()
+                      .then(() => {
+                        setIsFullscreen(true);
+                        setFullscreenWarning(false);
+                      })
+                      .catch(() => {
+                        alert("Please allow full-screen permission to continue this assessment.");
+                      });
+                  } else {
+                    setIsFullscreen(true);
+                  }
+                }}
+                className="w-full py-3.5 px-6 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-teal-600/25 transition-all cursor-pointer active:scale-98"
+              >
+                <Maximize2 className="w-4 h-4" />
+                <span>Enter Fullscreen to Continue Exam</span>
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ── TOP STATUS ROW ───────────────────────────────────────────────── */}
-        <header className="h-16 bg-navy-950 border-b border-slate-800 px-4 sm:px-6 flex items-center justify-between shrink-0 shadow-md">
+        <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between shrink-0 shadow-xs">
           {/* Logo & Assessment Title */}
           <div className="flex items-center gap-3.5">
             <div className="flex items-center gap-2">
-              <img src="/assets/logo.jpg" alt="FairHire Logo" className="w-7 h-7 rounded-lg object-contain bg-white p-0.5 shadow-xs" />
-              <span className="font-extrabold text-white text-lg tracking-tight font-sans">
-                Fair<span className="text-teal-400">Hire</span>
+              <img src="/assets/logo.jpg" alt="FairHire Logo" className="w-7 h-7 rounded-lg object-contain bg-white p-0.5 shadow-xs border border-slate-200" />
+              <span className="font-extrabold text-navy-900 text-lg tracking-tight font-sans">
+                Fair<span className="text-teal-600">Hire</span>
               </span>
             </div>
-            <span className="hidden sm:inline text-xs text-slate-500">•</span>
-            <span className="hidden sm:inline px-2.5 py-0.5 rounded-full bg-teal-500/15 text-teal-300 border border-teal-400/30 text-[11px] font-bold">
+            <span className="hidden sm:inline text-xs text-slate-300">•</span>
+            <span className="hidden sm:inline px-3 py-1 rounded-full bg-teal-50 text-teal-800 border border-teal-200 text-xs font-bold">
               {selectedRole} — Technical Aptitude
             </span>
           </div>
 
           {/* Center: Ticking Countdown Clock */}
-          <div className="flex items-center gap-2 bg-slate-900 border border-slate-700/80 px-4 py-1.5 rounded-2xl shadow-inner">
-            <Clock className={`w-4 h-4 ${totalTimeRemaining < 300 ? 'text-rose-400 animate-spin' : 'text-amber-400'}`} />
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider hidden md:inline">
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-4 py-1.5 rounded-2xl shadow-inner">
+            <Clock className={`w-4 h-4 ${totalTimeRemaining < 300 ? 'text-rose-600 animate-spin' : 'text-amber-600'}`} />
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider hidden md:inline">
               Time Remaining:
             </span>
             <span className={`font-mono text-base sm:text-lg font-black tracking-widest ${
-              totalTimeRemaining < 300 ? 'text-rose-400 animate-pulse' : 'text-amber-300'
+              totalTimeRemaining < 300 ? 'text-rose-600 animate-pulse' : 'text-slate-900'
             }`}>
               {formatTimerDisplay(totalTimeRemaining)}
             </span>
           </div>
 
-          {/* Right: Blinking Red Recording Beacon & Submit Shortcut */}
+          {/* Right: Proctoring Beacon & Submit Shortcut */}
           <div className="flex items-center gap-3">
             {malpracticeCount > 0 && (
-              <span className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-[11px] font-bold">
-                <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
-                <span>Malpractice Flags: {malpracticeCount}</span>
+              <span className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold">
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
+                <span>Malpractice: {malpracticeCount}</span>
               </span>
             )}
 
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-rose-950/80 border border-rose-500/40 text-rose-300 text-xs font-bold shadow-xs">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping shrink-0" />
-              <span className="tracking-wide text-[11px] uppercase">🔴 PROCTORING ACTIVE</span>
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold shadow-2xs">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping shrink-0" />
+              <span className="tracking-wide text-[11px] uppercase">🟢 PROCTORING ACTIVE</span>
             </div>
 
             <button
               type="button"
               onClick={() => setShowConfirmSubmitModal(true)}
-              className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-all shadow-sm cursor-pointer hidden sm:flex items-center gap-1.5"
+              className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-all shadow-xs cursor-pointer hidden sm:flex items-center gap-1.5"
             >
               <Send className="w-3.5 h-3.5" />
               <span>Submit Test</span>
@@ -559,31 +636,31 @@ const CandidateAptitude = () => {
           {/* ================================================================= */}
           {/* ZONE A & ZONE C: LEFT SIDEBAR (Progress Matrix + Webcam Anchor)   */}
           {/* ================================================================= */}
-          <aside className="lg:col-span-3 bg-navy-900/90 border-r border-slate-800 flex flex-col justify-between overflow-y-auto p-4 sm:p-5 space-y-4">
+          <aside className="lg:col-span-3 bg-white border-r border-slate-200 flex flex-col justify-between overflow-y-auto p-4 sm:p-5 space-y-4 shadow-xs">
             
             {/* ZONE A: PROGRESS PANEL */}
             <div className="space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-teal-400" />
-                  <h4 className="font-extrabold text-white text-xs sm:text-sm tracking-wide uppercase">
+                  <Layers className="w-4 h-4 text-teal-600" />
+                  <h4 className="font-extrabold text-navy-900 text-xs sm:text-sm tracking-wide uppercase">
                     Zone A: Progress Matrix
                   </h4>
                 </div>
-                <span className="text-[11px] font-mono text-slate-400">
+                <span className="text-[11px] font-mono font-semibold text-slate-500">
                   {totalQuestions} Questions (3 Sections)
                 </span>
               </div>
 
               {/* 3 Section Filter Tabs */}
-              <div className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-slate-950/80 border border-slate-800 text-[10px] font-bold">
+              <div className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-slate-100 border border-slate-200 text-[10px] font-bold">
                 <button
                   type="button"
                   onClick={() => setActiveZoneASection('ALL')}
                   className={`py-1 rounded-lg transition-all text-center cursor-pointer ${
                     activeZoneASection === 'ALL'
-                      ? 'bg-teal-500 text-slate-950 font-black shadow-xs'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-teal-600 text-white font-black shadow-xs'
+                      : 'text-slate-600 hover:text-navy-900'
                   }`}
                 >
                   All (45)
@@ -593,8 +670,8 @@ const CandidateAptitude = () => {
                   onClick={() => setActiveZoneASection('quant')}
                   className={`py-1 rounded-lg transition-all text-center cursor-pointer ${
                     activeZoneASection === 'quant'
-                      ? 'bg-blue-500 text-white font-black shadow-xs'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-blue-600 text-white font-black shadow-xs'
+                      : 'text-slate-600 hover:text-navy-900'
                   }`}
                 >
                   Quant (15)
@@ -604,8 +681,8 @@ const CandidateAptitude = () => {
                   onClick={() => setActiveZoneASection('logical')}
                   className={`py-1 rounded-lg transition-all text-center cursor-pointer ${
                     activeZoneASection === 'logical'
-                      ? 'bg-purple-500 text-white font-black shadow-xs'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-purple-600 text-white font-black shadow-xs'
+                      : 'text-slate-600 hover:text-navy-900'
                   }`}
                 >
                   Logical (15)
@@ -615,8 +692,8 @@ const CandidateAptitude = () => {
                   onClick={() => setActiveZoneASection('verbal')}
                   className={`py-1 rounded-lg transition-all text-center cursor-pointer ${
                     activeZoneASection === 'verbal'
-                      ? 'bg-teal-500 text-slate-950 font-black shadow-xs'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-teal-600 text-white font-black shadow-xs'
+                      : 'text-slate-600 hover:text-navy-900'
                   }`}
                 >
                   Verbal (15)
@@ -624,35 +701,35 @@ const CandidateAptitude = () => {
               </div>
 
               {/* Status Legend */}
-              <div className="grid grid-cols-3 gap-1.5 text-[10px] font-semibold text-slate-300">
+              <div className="grid grid-cols-3 gap-1.5 text-[10px] font-semibold text-slate-600">
                 <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded bg-emerald-500" />
+                  <span className="w-2.5 h-2.5 rounded bg-emerald-600" />
                   <span>Answered ({answeredCount})</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded bg-amber-400" />
+                  <span className="w-2.5 h-2.5 rounded bg-amber-500" />
                   <span>Review ({flaggedCount})</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded bg-slate-700" />
+                  <span className="w-2.5 h-2.5 rounded bg-slate-200 border border-slate-300" />
                   <span>Unvisited ({unansweredCount})</span>
                 </div>
               </div>
 
               {/* Numbered Matrix Tracker — Grouped by Corporate Sections */}
-              <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+              <div className="space-y-3 max-h-56 overflow-y-auto pr-1">
                 {CORPORATE_SECTIONS.filter(sec => activeZoneASection === 'ALL' || activeZoneASection === sec.id).map(section => {
                   const sectionQs = questions.slice(section.startIndex, section.endIndex + 1);
                   const isSectionActive = currentIndex >= section.startIndex && currentIndex <= section.endIndex;
 
                   return (
-                    <div key={section.id} className="p-2.5 rounded-2xl bg-slate-950/50 border border-slate-800 space-y-2">
+                    <div key={section.id} className="p-2.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
                       <div className="flex items-center justify-between text-[11px]">
-                        <span className={`font-bold flex items-center gap-1.5 ${isSectionActive ? 'text-teal-300' : 'text-slate-400'}`}>
-                          {isSectionActive && <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />}
+                        <span className={`font-bold flex items-center gap-1.5 ${isSectionActive ? 'text-teal-700' : 'text-slate-600'}`}>
+                          {isSectionActive && <span className="w-1.5 h-1.5 rounded-full bg-teal-600 animate-pulse" />}
                           {section.shortName}
                         </span>
-                        <span className="text-[10px] font-mono text-slate-500">
+                        <span className="text-[10px] font-mono text-slate-400">
                           Q{section.startQ}–Q{section.endQ}
                         </span>
                       </div>
@@ -663,11 +740,11 @@ const CandidateAptitude = () => {
                           const status = getQuestionBoxStatus(globalIdx);
                           const isCurrent = globalIdx === currentIndex;
 
-                          let boxStyles = 'bg-slate-800/80 text-slate-500 border-slate-700/60';
+                          let boxStyles = 'bg-white text-slate-700 border-slate-200';
                           if (status === 'answered') {
-                            boxStyles = 'bg-emerald-600 text-white border-emerald-400 font-black shadow-xs';
+                            boxStyles = 'bg-emerald-600 text-white border-emerald-500 font-bold shadow-xs';
                           } else if (status === 'flagged') {
-                            boxStyles = 'bg-amber-500 text-slate-950 border-amber-300 font-black shadow-xs';
+                            boxStyles = 'bg-amber-500 text-white border-amber-400 font-bold shadow-xs';
                           }
 
                           return (
@@ -675,7 +752,7 @@ const CandidateAptitude = () => {
                               key={globalIdx}
                               className={`h-8 rounded-lg text-xs font-bold transition-all flex items-center justify-center border select-none cursor-default ${boxStyles} ${
                                 isCurrent
-                                  ? 'ring-2 ring-teal-400 ring-offset-2 ring-offset-slate-950 scale-105 z-10 font-black text-white bg-teal-950/60 border-teal-400 shadow-md shadow-teal-950/40'
+                                  ? 'ring-2 ring-teal-500 ring-offset-2 ring-offset-white scale-105 z-10 font-black text-teal-950 bg-teal-50 border-teal-500 shadow-sm'
                                   : ''
                               }`}
                               title={`Question ${globalIdx + 1}: ${q.topic} (${status})`}
@@ -691,14 +768,14 @@ const CandidateAptitude = () => {
               </div>
 
               {/* Current Selection Tracker */}
-              <div className="p-3 rounded-2xl bg-slate-900/80 border border-slate-800 text-xs text-slate-300 space-y-1.5">
+              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-1.5">
                 <div className="flex justify-between font-mono">
-                  <span className="text-slate-400">Sequential Tracker:</span>
-                  <strong className="text-teal-400">Question {currentIndex + 1} / {totalQuestions}</strong>
+                  <span className="text-slate-500">Sequential Tracker:</span>
+                  <strong className="text-teal-700">Question {currentIndex + 1} / {totalQuestions}</strong>
                 </div>
-                <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
                   <div
-                    className="bg-teal-400 h-full rounded-full transition-all duration-300"
+                    className="bg-teal-600 h-full rounded-full transition-all duration-300"
                     style={{ width: `${((currentIndex + 1) / totalQuestions) * 100}%` }}
                   />
                 </div>
@@ -709,21 +786,21 @@ const CandidateAptitude = () => {
             </div>
 
             {/* ZONE C: PROCTORING STREAM (Sidebar Webcam View) */}
-            <div className="border-t border-slate-800 pt-4 space-y-2.5">
+            <div className="border-t border-slate-100 pt-4 space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                  <Camera className="w-3.5 h-3.5 text-teal-400" />
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                  <Camera className="w-3.5 h-3.5 text-teal-600" />
                   <span>ZONE C: Live Proctor Stream</span>
                 </span>
                 <span className={`px-2 py-0.5 rounded-full text-[9px] font-mono font-bold ${
-                  gazeDirection === 'CENTER' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-400 animate-pulse'
+                  gazeDirection === 'CENTER' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-600 border border-rose-200 animate-pulse'
                 }`}>
                   {gazeDirection === 'CENTER' ? 'LIVE • FOCUSED' : '⚠️ GAZE SHIFTED'}
                 </span>
               </div>
 
               {/* Clean Live Candidate Webcam Feed */}
-              <div className="relative rounded-2xl overflow-hidden bg-slate-950 aspect-video border border-slate-700 shadow-inner flex items-center justify-center">
+              <div className="relative rounded-2xl overflow-hidden bg-slate-950 aspect-video border border-slate-300 shadow-xs flex items-center justify-center">
                 <video
                   id="local-proctor-stream"
                   ref={videoRef}
@@ -749,16 +826,16 @@ const CandidateAptitude = () => {
               </div>
 
               {/* Hardware audio indicator & Status */}
-              <div className="flex items-center justify-between text-[10px] text-slate-400 px-1 font-mono">
+              <div className="flex items-center justify-between text-[10px] text-slate-500 px-1 font-mono">
                 <span className="flex items-center gap-1">
-                  <Mic className="w-3 h-3 text-teal-400" /> Audio Stream ({micLevel} dB):
+                  <Mic className="w-3 h-3 text-teal-600" /> Audio Stream ({micLevel} dB):
                 </span>
                 <div className="flex items-center gap-1 h-2 w-20">
                   {[20, 40, 60, 80, 100].map((bar, i) => (
                     <div
                       key={i}
                       className={`flex-1 rounded-sm ${
-                        micLevel >= bar ? 'bg-teal-400 h-full' : 'bg-slate-700 h-1'
+                        micLevel >= bar ? 'bg-teal-600 h-full' : 'bg-slate-200 h-1'
                       }`}
                     />
                   ))}
@@ -771,111 +848,116 @@ const CandidateAptitude = () => {
           {/* ================================================================= */}
           {/* ZONE B: MAIN ACTIVE WORKSPACE (Center Panel)                      */}
           {/* ================================================================= */}
-          <main className="lg:col-span-9 bg-slate-900 flex flex-col justify-between p-6 sm:p-8 md:p-10 pb-12 overflow-y-auto">
+          <main className="lg:col-span-9 bg-slate-100/60 flex flex-col justify-between p-6 sm:p-8 md:p-10 pb-12 overflow-y-auto">
             
-            <div className="max-w-4xl w-full mx-auto space-y-7">
+            <div className="max-w-4xl w-full mx-auto space-y-6">
               
-              {/* Question Header & Flag Badge */}
-              <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <span className="px-3 py-1 rounded-xl bg-teal-500/20 text-teal-300 border border-teal-400/30 text-xs font-mono font-bold">
-                    Question {currentIndex + 1} of {totalQuestions}
-                  </span>
-                  <span className="px-2.5 py-1 rounded-xl bg-slate-800 text-slate-300 border border-slate-700 text-xs font-bold">
-                    {currentQ?.section || 'Corporate Assessment'}
-                  </span>
-                  <span className="text-xs text-slate-400 font-medium">
-                    Topic: <strong className="text-teal-300">{currentQ?.topic || 'Core Engineering Logic'}</strong>
-                  </span>
+              {/* Question Card Container */}
+              <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6">
+                
+                {/* Question Header & Flag Badge */}
+                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <span className="px-3 py-1 rounded-xl bg-teal-50 text-teal-800 border border-teal-200 text-xs font-mono font-bold">
+                      Question {currentIndex + 1} of {totalQuestions}
+                    </span>
+                    <span className="px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700 border border-slate-200 text-xs font-bold">
+                      {currentQ?.section || 'Corporate Assessment'}
+                    </span>
+                    <span className="text-xs text-slate-500 font-medium">
+                      Topic: <strong className="text-navy-900">{currentQ?.topic || 'Core Engineering Logic'}</strong>
+                    </span>
+                  </div>
+
+                  {/* Mark for Review Button in Header */}
+                  <button
+                    type="button"
+                    onClick={handleToggleFlag}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                      isCurrentFlagged
+                        ? 'bg-amber-50 border-amber-300 text-amber-800'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-navy-900'
+                    }`}
+                  >
+                    {isCurrentFlagged ? (
+                      <>
+                        <BookmarkCheck className="w-4 h-4 text-amber-600" />
+                        <span>Marked for Review</span>
+                      </>
+                    ) : (
+                      <>
+                        <Bookmark className="w-4 h-4" />
+                        <span>Mark for Review</span>
+                      </>
+                    )}
+                  </button>
                 </div>
 
-                {/* Mark for Review Button in Header */}
-                <button
-                  type="button"
-                  onClick={handleToggleFlag}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
-                    isCurrentFlagged
-                      ? 'bg-amber-500/20 border-amber-400 text-amber-300'
-                      : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {isCurrentFlagged ? (
-                    <>
-                      <BookmarkCheck className="w-4 h-4 text-amber-400" />
-                      <span>Marked for Review</span>
-                    </>
-                  ) : (
-                    <>
-                      <Bookmark className="w-4 h-4" />
-                      <span>Mark for Review</span>
-                    </>
+                {/* The Question Area Statement */}
+                <div className="space-y-4">
+                  <h3 className="text-lg sm:text-xl font-black text-navy-900 leading-relaxed tracking-tight">
+                    Q{currentIndex + 1}: {currentQ?.question}
+                  </h3>
+
+                  {currentQ?.codeSnippet && (
+                    <div className="p-4 sm:p-5 rounded-2xl bg-slate-900 border border-slate-800 font-mono text-xs sm:text-sm text-emerald-300 overflow-x-auto shadow-inner">
+                      <pre>{currentQ.codeSnippet}</pre>
+                    </div>
                   )}
-                </button>
-              </div>
+                </div>
 
-              {/* The Question Area Statement */}
-              <div className="space-y-4">
-                <h3 className="text-lg sm:text-xl md:text-2xl font-black text-white leading-relaxed tracking-tight">
-                  Q{currentIndex + 1}: {currentQ?.question}
-                </h3>
+                {/* The Multiple-Choice Radio Inputs */}
+                <div className="space-y-3 pt-2">
+                  {currentQ?.options.map((optionText, optIdx) => {
+                    const isChecked = currentSelectedOption === optIdx;
 
-                {currentQ?.codeSnippet && (
-                  <div className="p-4 sm:p-5 rounded-2xl bg-slate-950 border border-slate-800 font-mono text-xs sm:text-sm text-teal-300 overflow-x-auto shadow-inner">
-                    <pre>{currentQ.codeSnippet}</pre>
-                  </div>
-                )}
-              </div>
-
-              {/* The Multiple-Choice Radio Inputs */}
-              <div className="space-y-3.5 pt-2">
-                {currentQ?.options.map((optionText, optIdx) => {
-                  const isChecked = currentSelectedOption === optIdx;
-
-                  return (
-                    <label
-                      key={optIdx}
-                      onClick={() => handleOptionChange(currentQId, optIdx)}
-                      className={`w-full p-4 sm:p-5 rounded-2xl border text-left text-xs sm:text-sm font-medium transition-all flex items-center justify-between cursor-pointer group ${
-                        isChecked
-                          ? 'bg-teal-500/15 border-teal-400 text-white shadow-lg shadow-teal-950/40 ring-1 ring-teal-400'
-                          : 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800 hover:border-slate-600 hover:text-white'
-                      }`}
-                    >
-                      <div className="flex items-center gap-4">
-                        {/* Bullet / Radio Circle */}
-                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
+                    return (
+                      <label
+                        key={optIdx}
+                        onClick={() => handleOptionChange(currentQId, optIdx)}
+                        className={`w-full p-4 sm:p-4.5 rounded-2xl border text-left text-xs sm:text-sm font-medium transition-all flex items-center justify-between cursor-pointer group ${
                           isChecked
-                            ? 'border-teal-400 bg-teal-500 text-slate-950'
-                            : 'border-slate-500 group-hover:border-teal-400'
-                        }`}>
-                          {isChecked && <div className="w-2.5 h-2.5 rounded-full bg-slate-950" />}
+                            ? 'bg-teal-50/70 border-2 border-teal-600 text-navy-900 shadow-sm ring-1 ring-teal-600'
+                            : 'bg-white border-slate-200 text-slate-800 hover:bg-slate-50/80 hover:border-slate-300 hover:text-navy-900'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3.5">
+                          {/* Bullet / Radio Circle */}
+                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
+                            isChecked
+                              ? 'border-teal-600 bg-teal-600 text-white'
+                              : 'border-slate-300 group-hover:border-teal-500'
+                          }`}>
+                            {isChecked && <div className="w-2 h-2 rounded-full bg-white" />}
+                          </div>
+
+                          <span className="leading-snug text-sm font-sans">
+                            {optionText}
+                          </span>
                         </div>
 
-                        <span className="leading-snug text-sm sm:text-base font-sans">
-                          {optionText}
-                        </span>
-                      </div>
-
-                      {isChecked && (
-                        <CheckCircle2 className="w-5 h-5 text-teal-400 shrink-0 ml-2" />
-                      )}
-                    </label>
-                  );
-                })}
-              </div>
-
-              {/* Selection Prompt Warning if user tries to advance without answering */}
-              {selectionPrompt && (
-                <div className="p-3.5 rounded-2xl bg-amber-500/20 border border-amber-400/50 text-amber-300 text-xs font-semibold flex items-center gap-2.5 animate-bounce">
-                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Please select an option (A, B, C, or D) to finish this question and unlock the next question.</span>
+                        {isChecked && (
+                          <CheckCircle2 className="w-5 h-5 text-teal-600 shrink-0 ml-2" />
+                        )}
+                      </label>
+                    );
+                  })}
                 </div>
-              )}
+
+                {/* Selection Prompt Warning if user tries to advance without answering */}
+                {selectionPrompt && (
+                  <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold flex items-center gap-2.5 animate-bounce">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Please select an option (A, B, C, or D) to finish this question and unlock the next question.</span>
+                  </div>
+                )}
+
+              </div>
 
             </div>
 
             {/* ── Control Row (Footer Links & Actions) ───────────────────────── */}
-            <div className="max-w-4xl w-full mx-auto pt-8 mt-6 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="max-w-4xl w-full mx-auto pt-6 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
               
               <div className="flex items-center gap-3 w-full sm:w-auto">
                 {/* [◀️ Previous Question] */}
@@ -885,8 +967,8 @@ const CandidateAptitude = () => {
                   disabled={currentIndex === 0}
                   className={`px-5 py-2.5 rounded-xl border text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
                     currentIndex === 0
-                      ? 'border-slate-800 text-slate-600 cursor-not-allowed'
-                      : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'
+                      ? 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed'
+                      : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100 hover:text-navy-900 shadow-2xs'
                   }`}
                 >
                   <ArrowLeft className="w-4 h-4" />
@@ -897,7 +979,7 @@ const CandidateAptitude = () => {
                 <button
                   type="button"
                   onClick={handleToggleFlag}
-                  className="px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-bold transition-all cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 text-xs font-bold transition-all cursor-pointer shadow-2xs"
                 >
                   {isCurrentFlagged ? 'Unflag Question' : 'Mark for Review'}
                 </button>
@@ -908,7 +990,7 @@ const CandidateAptitude = () => {
                 <button
                   type="button"
                   onClick={() => setShowConfirmSubmitModal(true)}
-                  className="px-4 py-2.5 rounded-xl text-rose-400 hover:bg-rose-950/40 border border-rose-800/50 text-xs font-bold transition-all cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl text-rose-600 hover:bg-rose-50 border border-rose-200 text-xs font-bold transition-all cursor-pointer shadow-2xs"
                 >
                   🔴 Terminate & Submit
                 </button>
@@ -916,7 +998,7 @@ const CandidateAptitude = () => {
                 <button
                   type="button"
                   onClick={handleSaveAndNext}
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-slate-950 font-black text-xs sm:text-sm flex items-center gap-2 transition-all shadow-md shadow-teal-900/30 cursor-pointer active:scale-95"
+                  className="px-6 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-black text-xs sm:text-sm flex items-center gap-2 transition-all shadow-md shadow-teal-600/20 cursor-pointer active:scale-95"
                 >
                   <span>{currentIndex === totalQuestions - 1 ? 'Save & Complete' : 'Save & Next ▶️'}</span>
                   <ArrowRight className="w-4 h-4" />
@@ -931,21 +1013,21 @@ const CandidateAptitude = () => {
 
         {/* ── Malpractice Warning Overlay Modal ─────────────────────────────── */}
         {showMalpracticeAlert && (
-          <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
-            <div className="bg-slate-900 border-2 border-rose-500 rounded-3xl p-6 sm:p-8 max-w-md w-full text-center space-y-4 shadow-2xl">
-              <div className="w-14 h-14 rounded-2xl bg-rose-500/20 border border-rose-500/40 text-rose-400 flex items-center justify-center mx-auto animate-bounce">
+          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+            <div className="bg-white border border-rose-200 rounded-3xl p-6 sm:p-8 max-w-md w-full text-center space-y-4 shadow-2xl">
+              <div className="w-14 h-14 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto animate-bounce">
                 <AlertTriangle className="w-8 h-8" />
               </div>
-              <h4 className="text-xl font-black text-white">
+              <h4 className="text-xl font-black text-navy-900">
                 Proctoring Violation Logged!
               </h4>
-              <p className="text-xs text-rose-300 bg-rose-950/60 border border-rose-800/60 p-2.5 rounded-xl font-medium leading-relaxed">
+              <p className="text-xs text-rose-900 bg-rose-50 border border-rose-200 p-2.5 rounded-xl font-medium leading-relaxed">
                 {currentMalpracticeReason}
               </p>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
+              <p className="text-[11px] text-slate-500 leading-relaxed">
                 Your face, eye gaze, and window focus are continuously monitored. This violation was timestamped and dispatched to the recruiter.
               </p>
-              <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-700 text-xs font-mono font-bold text-rose-300">
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-mono font-bold text-rose-800">
                 Total Malpractice Flags Recorded: {malpracticeCount}
               </div>
               <button
@@ -958,7 +1040,7 @@ const CandidateAptitude = () => {
                     document.documentElement.requestFullscreen().catch(() => {});
                   }
                 }}
-                className="w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-all shadow-lg cursor-pointer"
+                className="w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-all shadow-md cursor-pointer"
               >
                 Acknowledge & Return to Assessment
               </button>
@@ -968,36 +1050,36 @@ const CandidateAptitude = () => {
 
         {/* ── Confirm Submit Modal ─────────────────────────────────────────── */}
         {showConfirmSubmitModal && (
-          <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
-            <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 sm:p-8 max-w-lg w-full space-y-5 shadow-2xl">
-              <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
-                <div className="w-10 h-10 rounded-xl bg-teal-500/20 text-teal-400 flex items-center justify-center font-bold">
+          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+            <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 max-w-lg w-full space-y-5 shadow-2xl">
+              <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
+                <div className="w-10 h-10 rounded-xl bg-teal-50 text-teal-600 border border-teal-200 flex items-center justify-center font-bold">
                   <ShieldCheck className="w-6 h-6" />
                 </div>
                 <div>
-                  <h4 className="text-lg font-black text-white">
+                  <h4 className="text-lg font-black text-navy-900">
                     Submit Aptitude Assessment?
                   </h4>
-                  <p className="text-xs text-slate-400">Review your completion status below</p>
+                  <p className="text-xs text-slate-500">Review your completion status below</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-3 text-center">
-                <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-800/50">
-                  <span className="text-lg font-black text-emerald-400 font-mono">{answeredCount}</span>
-                  <p className="text-[10px] uppercase font-bold text-slate-400">Answered</p>
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+                  <span className="text-lg font-black text-emerald-700 font-mono">{answeredCount}</span>
+                  <p className="text-[10px] uppercase font-bold text-slate-500">Answered</p>
                 </div>
-                <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-800/50">
-                  <span className="text-lg font-black text-amber-400 font-mono">{flaggedCount}</span>
-                  <p className="text-[10px] uppercase font-bold text-slate-400">Flagged</p>
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200">
+                  <span className="text-lg font-black text-amber-700 font-mono">{flaggedCount}</span>
+                  <p className="text-[10px] uppercase font-bold text-slate-500">Flagged</p>
                 </div>
-                <div className="p-3 rounded-xl bg-slate-800 border border-slate-700">
-                  <span className="text-lg font-black text-slate-300 font-mono">{unansweredCount}</span>
-                  <p className="text-[10px] uppercase font-bold text-slate-400">Unanswered</p>
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="text-lg font-black text-slate-700 font-mono">{unansweredCount}</span>
+                  <p className="text-[10px] uppercase font-bold text-slate-500">Unanswered</p>
                 </div>
               </div>
 
-              <p className="text-xs text-slate-300 leading-relaxed">
+              <p className="text-xs text-slate-600 leading-relaxed">
                 Once submitted, your responses are cryptographically sealed and transmitted directly to the HR evaluation committee.
               </p>
 
@@ -1005,14 +1087,14 @@ const CandidateAptitude = () => {
                 <button
                   type="button"
                   onClick={() => setShowConfirmSubmitModal(false)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 text-xs font-bold transition-all cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-bold transition-all cursor-pointer"
                 >
                   Continue Test
                 </button>
                 <button
                   type="button"
                   onClick={executeFinalSubmission}
-                  className="px-5 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-black text-xs transition-all shadow-lg cursor-pointer"
+                  className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-black text-xs transition-all shadow-md cursor-pointer"
                 >
                   Yes, Terminate & Submit
                 </button>
@@ -1274,7 +1356,7 @@ const CandidateAptitude = () => {
         {/* 🎨 PHASE 1: THE PRE-EXAM INSTRUCTIONS & VERIFICATION GATE                  */}
         {/* ========================================================================= */}
         {phase === 'gate' && (
-          <div className="space-y-6 animate-fadeIn">
+          <div id="exam-start-screen" className="space-y-6 animate-fadeIn">
             {/* Gate Top Banner Card */}
             <div className="bg-gradient-to-r from-navy-950 via-navy-900 to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-navy-800 relative overflow-hidden">
               <div className="absolute right-0 top-0 translate-x-8 -translate-y-8 w-64 h-64 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -1662,21 +1744,22 @@ const CandidateAptitude = () => {
                   {/* 3. The Call-to-Action Trigger */}
                   <div className="pt-2">
                     <button
+                      id="start-assessment-btn"
                       type="button"
                       disabled={!rulesAgreed}
-                      onClick={handleLockAndStart}
+                      onClick={launchProctoredExam}
                       className={`w-full py-4 px-6 rounded-2xl font-extrabold text-sm sm:text-base flex items-center justify-center gap-3 transition-all shadow-lg cursor-pointer ${
                         rulesAgreed
                           ? 'bg-gradient-to-r from-teal-500 via-teal-600 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white shadow-teal-500/25 active:scale-[0.99]'
                           : 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed'
                       }`}
                     >
-                      <Lock className="w-5 h-5" />
-                      <span>✓ Yes, Allow Camera & Mic Access & Enter Assessment</span>
+                      <Maximize2 className="w-5 h-5" />
+                      <span>Start Assessment</span>
                     </button>
                     {!rulesAgreed && (
                       <p className="text-[11px] text-center text-slate-400 mt-2">
-                        Please check the declaration box above to enable the access permission trigger.
+                        Please check the declaration box above to enable the Start Assessment trigger.
                       </p>
                     )}
                   </div>
