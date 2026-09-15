@@ -643,9 +643,6 @@ const CandidateProfileWizard = () => {
                   </h2>
                   <p className="text-xs text-slate-500">70% of recruiters discover candidates through their resume</p>
                 </div>
-                <span className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full border border-blue-200">
-                  Naukri Parser Active
-                </span>
               </div>
               
               {/* Parsing Spinner / Progress Bar */}
@@ -1074,7 +1071,7 @@ const CandidateProfileWizard = () => {
           <div className="max-w-[1200px] mx-auto flex items-center justify-between">
             <div className="hidden sm:flex items-center gap-2 text-xs text-slate-600">
               <CheckCircle className="w-4 h-4 text-emerald-500" />
-              <span>Full Naukri-style editing enabled. Updates save directly to your candidate profile.</span>
+              <span>Full profile editing enabled. Updates save directly to your candidate profile.</span>
             </div>
             <div className="flex gap-3 w-full sm:w-auto">
               <button
