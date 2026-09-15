@@ -291,6 +291,7 @@ const CandidateAptitude = () => {
 
       if (!inFullscreen && phaseRef.current === 'active') {
         setMalpracticeCount((prev) => prev + 1);
+        setCurrentMalpracticeReason('Candidate rejected or exited full-screen mode (Anti-cheat triggered)');
         setShowMalpracticeAlert(true);
         notifyRecruiterOfMalpractice('Candidate rejected or exited full-screen mode (Anti-cheat triggered)');
       }
@@ -299,19 +300,69 @@ const CandidateAptitude = () => {
     const handleVisibilityChange = () => {
       if (document.hidden && phaseRef.current === 'active') {
         setMalpracticeCount((prev) => prev + 1);
+        setCurrentMalpracticeReason('Candidate switched browser tab or minimized assessment window');
         setShowMalpracticeAlert(true);
         notifyRecruiterOfMalpractice('Candidate switched browser tab or minimized assessment window');
+      }
+    };
+
+    // Anti-Copy, Paste, Cut & Inspection Short-circuiting
+    const handleCopyCutPaste = (e) => {
+      if (phaseRef.current === 'active') {
+        e.preventDefault();
+        setMalpracticeCount((prev) => prev + 1);
+        setCurrentMalpracticeReason('Unauthorized Clipboard Action: Candidate attempted to copy, cut, or paste text during exam (Malpractice flagged)');
+        setShowMalpracticeAlert(true);
+        notifyRecruiterOfMalpractice('Unauthorized Clipboard Action: Candidate attempted to copy, cut, or paste text during assessment');
+      }
+    };
+
+    const handleKeyDown = (e) => {
+      if (phaseRef.current === 'active') {
+        const key = (e.key || '').toLowerCase();
+        // Block Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+A, Ctrl+U, Ctrl+P, F12, Ctrl+Shift+I
+        if (
+          ((e.ctrlKey || e.metaKey) && ['c', 'v', 'x', 'a', 'u', 'p', 's'].includes(key)) ||
+          e.key === 'F12' ||
+          ((e.ctrlKey || e.metaKey) && e.shiftKey && ['i', 'j', 'c'].includes(key))
+        ) {
+          e.preventDefault();
+          setMalpracticeCount((prev) => prev + 1);
+          setCurrentMalpracticeReason(`Unauthorized Keyboard Shortcut (${(e.ctrlKey || e.metaKey) ? 'Ctrl+' : ''}${e.key.toUpperCase()}): Blocked during proctored exam`);
+          setShowMalpracticeAlert(true);
+          notifyRecruiterOfMalpractice(`Unauthorized Keyboard Shortcut (${(e.ctrlKey || e.metaKey) ? 'Ctrl+' : ''}${e.key.toUpperCase()}): Blocked during proctored exam`);
+        }
+      }
+    };
+
+    const handleContextMenu = (e) => {
+      if (phaseRef.current === 'active') {
+        e.preventDefault();
+        setMalpracticeCount((prev) => prev + 1);
+        setCurrentMalpracticeReason('Unauthorized Context Menu: Right-clicking is prohibited during proctored examination');
+        setShowMalpracticeAlert(true);
+        notifyRecruiterOfMalpractice('Unauthorized Context Menu: Candidate right-clicked during assessment');
       }
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener('copy', handleCopyCutPaste);
+    document.addEventListener('cut', handleCopyCutPaste);
+    document.addEventListener('paste', handleCopyCutPaste);
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('contextmenu', handleContextMenu);
 
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener('copy', handleCopyCutPaste);
+      document.removeEventListener('cut', handleCopyCutPaste);
+      document.removeEventListener('paste', handleCopyCutPaste);
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('contextmenu', handleContextMenu);
     };
   }, [notifyRecruiterOfMalpractice]);
 
@@ -1419,19 +1470,47 @@ const CandidateAptitude = () => {
                     </div>
 
                     {/* Action Button on Card Footer */}
-                    <div className="pt-5 mt-4 border-t border-slate-100">
+                    <div className="pt-5 mt-4 border-t border-slate-100 flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => {
-                          setSelectedCompanyPack(pack);
-                          setSelectedRole(pack.title);
+                          const chosenPack = pack || MNC_PRACTICE_MODULES[0];
+                          setSelectedCompanyPack(chosenPack);
+                          setSelectedRole(chosenPack.title);
+                          setRulesAgreed(true);
                           setPhase('gate');
                           window.scrollTo({ top: 0, behavior: 'smooth' });
                         }}
-                        className="w-full py-3 px-4 rounded-2xl bg-navy-900 hover:bg-teal-600 text-white font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-md group-hover:shadow-teal-600/20 cursor-pointer active:scale-[0.98]"
+                        className="flex-1 py-3 px-3 rounded-2xl bg-navy-900 hover:bg-teal-600 text-white font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all shadow-md group-hover:shadow-teal-600/20 cursor-pointer active:scale-[0.98]"
                       >
                         <span>Start Practice Pack</span>
                         <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const chosenPack = pack || MNC_PRACTICE_MODULES[0];
+                          setSelectedCompanyPack(chosenPack);
+                          setSelectedRole(chosenPack.title);
+                          setRulesAgreed(true);
+                          setIsFullscreen(true);
+                          setCurrentIndex(0);
+                          setAnswers({});
+                          setFlaggedQuestions({});
+                          setVisitedQuestions({ 1: true });
+                          setTotalTimeRemaining(2700);
+                          setMalpracticeCount(0);
+                          setPhase('active');
+                          setTimeout(() => {
+                            activateHardwareProctoring();
+                          }, 50);
+                        }}
+                        className="py-3 px-3 rounded-2xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1 transition-all shadow-md cursor-pointer active:scale-[0.98]"
+                        title="Launch test immediately"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        <span className="hidden sm:inline">Exam</span>
                       </button>
                     </div>
 
@@ -1461,6 +1540,7 @@ const CandidateAptitude = () => {
                 onClick={() => {
                   setSelectedCompanyPack(MNC_PRACTICE_MODULES[0]);
                   setSelectedRole(MNC_PRACTICE_MODULES[0].title);
+                  setRulesAgreed(true);
                   setPhase('gate');
                 }}
                 className="px-6 py-3 rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-slate-950 font-black text-xs sm:text-sm flex items-center gap-2 transition-all shadow-lg shrink-0 cursor-pointer"
