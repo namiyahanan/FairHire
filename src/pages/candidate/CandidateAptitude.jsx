@@ -745,12 +745,12 @@ const CandidateAptitude = () => {
               </div>
             </div>
 
-            {/* ZONE C: PROCTORING STREAM (Floating Anchor) */}
+            {/* ZONE C: PROCTORING STREAM (Sidebar Webcam View) */}
             <div className="border-t border-slate-800 pt-4 space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                   <Camera className="w-3.5 h-3.5 text-teal-400" />
-                  <span>ZONE C: AI Eye & Face Proctor</span>
+                  <span>ZONE C: Live Proctor Stream</span>
                 </span>
                 <span className={`px-2 py-0.5 rounded-full text-[9px] font-mono font-bold ${
                   gazeDirection === 'CENTER' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-400 animate-pulse'
@@ -759,113 +759,46 @@ const CandidateAptitude = () => {
                 </span>
               </div>
 
-              {/* Live Webcam & Biometric Face Frame */}
+              {/* Clean Live Candidate Webcam Feed */}
               <div className="relative rounded-2xl overflow-hidden bg-slate-950 aspect-video border border-slate-700 shadow-inner flex items-center justify-center">
                 <video
+                  id="local-proctor-stream"
                   ref={videoRef}
                   autoPlay
                   playsInline
                   muted
-                  className="w-full h-full object-cover mirror-mode opacity-80"
+                  className="w-full h-full object-cover mirror-mode"
                 />
 
-                {/* AI Biometric Face & Eye Pupils Renderer */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  {/* Face Mesh Wireframe */}
-                  <div className="relative w-32 h-36 border-2 border-teal-400/60 rounded-3xl flex flex-col items-center justify-center p-2 shadow-[0_0_20px_rgba(20,184,166,0.25)] bg-slate-900/40 backdrop-blur-xs">
-                    
-                    {/* Eyebrows & Eyes Container */}
-                    <div className="flex items-center justify-between w-20 pt-3 pb-2">
-                      {/* Left Eye */}
-                      <div className="relative w-6 h-4 rounded-full border-2 border-teal-300 bg-slate-950 flex items-center justify-center overflow-hidden">
-                        <div
-                          className="w-2.5 h-2.5 rounded-full bg-teal-400 shadow-[0_0_8px_rgba(45,212,191,1)] transition-transform duration-200"
-                          style={{
-                            transform: `translateX(${gazeAngle * 0.15}px) translateY(${gazeDirection === 'DOWN' ? 2 : 0}px)`
-                          }}
-                        />
-                      </div>
-
-                      {/* Right Eye */}
-                      <div className="relative w-6 h-4 rounded-full border-2 border-teal-300 bg-slate-950 flex items-center justify-center overflow-hidden">
-                        <div
-                          className="w-2.5 h-2.5 rounded-full bg-teal-400 shadow-[0_0_8px_rgba(45,212,191,1)] transition-transform duration-200"
-                          style={{
-                            transform: `translateX(${gazeAngle * 0.15}px) translateY(${gazeDirection === 'DOWN' ? 2 : 0}px)`
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Nose Bridge Indicator */}
-                    <div className="w-1 h-3 bg-teal-400/40 rounded-full my-0.5" />
-
-                    {/* Mouth Line */}
-                    <div className="w-6 h-1 bg-teal-400/60 rounded-full mt-1.5" />
-
-                    {/* Status Badge */}
-                    <span className={`mt-2 text-[8px] font-mono px-1.5 py-0.5 rounded font-bold ${
-                      gazeDirection === 'CENTER' ? 'bg-slate-950/80 text-teal-300 border border-teal-400/40' : 'bg-rose-950/90 text-rose-300 border border-rose-500 animate-bounce'
-                    }`}>
-                      {gazeDirection === 'CENTER' ? 'EYES FOCUSED (0°)' : `EYE SHIFT (${gazeAngle}°)`}
-                    </span>
-                  </div>
+                {/* Subtle Clean Proctoring Badge */}
+                <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/75 backdrop-blur-md px-2 py-0.5 rounded-md text-[9px] font-mono text-emerald-400 font-bold border border-emerald-500/30">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                  <span>AI PROCTOR ACTIVE</span>
                 </div>
 
-                {/* Corner stream badge */}
-                <div className="absolute bottom-1.5 left-2 right-2 flex items-center justify-between text-[9px] font-mono text-slate-300 bg-black/80 px-2 py-0.5 rounded backdrop-blur-xs">
-                  <span>Gaze: {gazeDirection} ({gazeAngle}°)</span>
-                  <span className={gazeDirection === 'CENTER' ? 'text-emerald-400' : 'text-rose-400 font-bold'}>
-                    {gazeDirection === 'CENTER' ? '✓ Verified' : '🚨 Malpractice'}
+                {/* Bottom Gaze Status Bar */}
+                <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between text-[9px] font-mono text-slate-200 bg-black/80 backdrop-blur-md px-2 py-1 rounded-md">
+                  <span>Candidate: {user?.name || 'Verified'}</span>
+                  <span className={gazeDirection === 'CENTER' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                    {gazeDirection === 'CENTER' ? '✓ Gaze: Center' : '⚠️ Gaze Shifted'}
                   </span>
                 </div>
               </div>
 
-              {/* Eye Tracking Simulation & Mic volume meter indicator */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-[10px] text-slate-400 px-1 font-mono">
-                  <span>Audio Stream:</span>
-                  <div className="flex items-center gap-1 h-2 w-20">
-                    {[20, 40, 60, 80, 100].map((bar, i) => (
-                      <div
-                        key={i}
-                        className={`flex-1 rounded-sm ${
-                          micLevel >= bar ? 'bg-teal-400 h-full' : 'bg-slate-700 h-1'
-                        }`}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                {/* Eye Movement Test Controls */}
-                <div className="pt-1 flex items-center gap-1 text-[9px]">
-                  <button
-                    type="button"
-                    onClick={() => triggerGazeMalpractice('LOOKING_LEFT', -32)}
-                    className="flex-1 py-1 px-1.5 rounded-lg bg-slate-800 hover:bg-rose-900/60 border border-slate-700 hover:border-rose-500 text-slate-300 hover:text-rose-200 transition-all font-mono font-bold cursor-pointer"
-                    title="Simulate looking away to the left"
-                  >
-                    👁️ Shift Left
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setGazeDirection('CENTER');
-                      setGazeAngle(0);
-                    }}
-                    className="py-1 px-2 rounded-lg bg-teal-500/20 border border-teal-400/40 text-teal-300 font-mono font-bold cursor-pointer"
-                    title="Reset gaze to center"
-                  >
-                    🎯 Center
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => triggerGazeMalpractice('LOOKING_RIGHT', 32)}
-                    className="flex-1 py-1 px-1.5 rounded-lg bg-slate-800 hover:bg-rose-900/60 border border-slate-700 hover:border-rose-500 text-slate-300 hover:text-rose-200 transition-all font-mono font-bold cursor-pointer"
-                    title="Simulate looking away to the right"
-                  >
-                    👁️ Shift Right
-                  </button>
+              {/* Hardware audio indicator & Status */}
+              <div className="flex items-center justify-between text-[10px] text-slate-400 px-1 font-mono">
+                <span className="flex items-center gap-1">
+                  <Mic className="w-3 h-3 text-teal-400" /> Audio Stream ({micLevel} dB):
+                </span>
+                <div className="flex items-center gap-1 h-2 w-20">
+                  {[20, 40, 60, 80, 100].map((bar, i) => (
+                    <div
+                      key={i}
+                      className={`flex-1 rounded-sm ${
+                        micLevel >= bar ? 'bg-teal-400 h-full' : 'bg-slate-700 h-1'
+                      }`}
+                    />
+                  ))}
                 </div>
               </div>
             </div>
@@ -875,7 +808,7 @@ const CandidateAptitude = () => {
           {/* ================================================================= */}
           {/* ZONE B: MAIN ACTIVE WORKSPACE (Center Panel)                      */}
           {/* ================================================================= */}
-          <main className="lg:col-span-9 bg-slate-900 flex flex-col justify-between p-6 sm:p-8 md:p-10 pb-40 sm:pb-44 overflow-y-auto">
+          <main className="lg:col-span-9 bg-slate-900 flex flex-col justify-between p-6 sm:p-8 md:p-10 pb-12 overflow-y-auto">
             
             <div className="max-w-4xl w-full mx-auto space-y-7">
               
@@ -1031,159 +964,6 @@ const CandidateAptitude = () => {
 
           </main>
 
-        </div>
-
-        {/* ── Small Floating Corner Webcam Preview HUD (Glass-Bordered Frame) ── */}
-        <div className={`fixed bottom-6 right-6 z-40 p-2.5 rounded-2xl bg-slate-950/90 backdrop-blur-xl border-2 ${
-          gazeDirection === 'CENTER' ? 'border-teal-400/60 shadow-teal-950/60' : 'border-rose-500 shadow-rose-950/60 animate-pulse'
-        } shadow-2xl flex flex-col items-center space-y-2 pointer-events-auto transition-all ${
-          isProctorBoxMinimized ? 'w-auto' : 'w-56 sm:w-64'
-        }`}>
-          {/* Header Bar */}
-          <div className="flex items-center justify-between w-full px-1 text-[10px] font-mono text-slate-300 gap-2">
-            <span className={`flex items-center gap-1.5 font-bold ${
-              gazeDirection === 'CENTER' ? 'text-rose-400' : 'text-rose-300 animate-bounce'
-            }`}>
-              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-              <span>{gazeDirection === 'CENTER' ? 'AI PROCTOR LIVE' : '⚠️ GAZE VIOLATION'}</span>
-            </span>
-
-            <div className="flex items-center gap-1">
-              <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold border ${
-                gazeDirection === 'CENTER' ? 'bg-teal-500/20 text-teal-300 border-teal-400/30' : 'bg-rose-500/30 text-rose-300 border-rose-400'
-              }`}>
-                {gazeDirection === 'CENTER' ? 'EYES TRACKED' : 'LOOKING AWAY'}
-              </span>
-              <button
-                type="button"
-                onClick={() => setIsProctorBoxMinimized(!isProctorBoxMinimized)}
-                className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold cursor-pointer"
-                title={isProctorBoxMinimized ? "Expand Camera" : "Minimize Camera"}
-              >
-                {isProctorBoxMinimized ? "▲" : "▼"}
-              </button>
-            </div>
-          </div>
-
-          {!isProctorBoxMinimized && (
-            <>
-              {/* Webcam & Biometric Viewport */}
-              <div className="relative w-full h-36 sm:h-40 rounded-xl overflow-hidden bg-slate-950 border border-teal-500/30 shadow-inner flex items-center justify-center">
-                <video
-                  id="local-proctor-stream"
-                  ref={proctorVideoRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  className="w-full h-full object-cover mirror-mode opacity-75"
-                />
-
-                {/* Face & Moving Pupil Tracking HUD Overlay */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="relative w-28 h-32 border-2 border-teal-400/80 rounded-2xl flex flex-col items-center justify-center p-1.5 shadow-[0_0_20px_rgba(20,184,166,0.3)] bg-slate-900/50 backdrop-blur-xs">
-                    
-                    {/* Live Moving Eyes */}
-                    <div className="flex items-center justify-between w-16 pt-2 pb-1">
-                      {/* Left Pupil */}
-                      <div className="relative w-5 h-3 rounded-full border border-teal-300 bg-slate-950 flex items-center justify-center overflow-hidden">
-                        <div
-                          className="w-2 h-2 rounded-full bg-teal-300 shadow-[0_0_6px_rgba(45,212,191,1)] transition-transform duration-200"
-                          style={{
-                            transform: `translateX(${gazeAngle * 0.15}px)`
-                          }}
-                        />
-                      </div>
-
-                      {/* Right Pupil */}
-                      <div className="relative w-5 h-3 rounded-full border border-teal-300 bg-slate-950 flex items-center justify-center overflow-hidden">
-                        <div
-                          className="w-2 h-2 rounded-full bg-teal-300 shadow-[0_0_6px_rgba(45,212,191,1)] transition-transform duration-200"
-                          style={{
-                            transform: `translateX(${gazeAngle * 0.15}px)`
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Nose and Mouth Mesh */}
-                    <div className="w-1 h-2 bg-teal-400/40 rounded-full my-0.5" />
-                    <div className="w-5 h-0.5 bg-teal-400/60 rounded-full mt-1" />
-
-                    <span className={`mt-2 text-[8px] font-mono px-1.5 py-0.5 rounded font-bold ${
-                      gazeDirection === 'CENTER' ? 'bg-slate-950/90 text-teal-300 border border-teal-400/40' : 'bg-rose-950/90 text-rose-300 border border-rose-500 animate-pulse'
-                    }`}>
-                      {gazeDirection === 'CENTER' ? 'GAZE: CENTER (0°)' : `🚨 DEVIATION: ${gazeAngle}°`}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Audio meter floating inside corner */}
-                <div className="absolute top-1.5 left-1.5 flex items-center gap-1 bg-black/80 px-1.5 py-0.5 rounded backdrop-blur-xs text-[8px] font-mono text-teal-300">
-                  <Mic className="w-2.5 h-2.5 text-teal-400" />
-                  <div className="flex items-center gap-0.5 h-1.5 w-8">
-                    {[20, 50, 80].map((bar, i) => (
-                      <div
-                        key={i}
-                        className={`flex-1 rounded-xs transition-all ${
-                          micLevel >= bar ? 'bg-teal-400 h-full' : 'bg-slate-700 h-0.5'
-                        }`}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                {/* Sub-label footer */}
-                <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between text-[8px] font-mono text-slate-200 bg-slate-950/90 px-2 py-0.5 rounded backdrop-blur-xs">
-                  <span>Face: {user?.name || 'Candidate'}</span>
-                  <span className={gazeDirection === 'CENTER' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
-                    {gazeDirection === 'CENTER' ? '✓ In Frame' : '⚠️ Eye Shift'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Eye Tracking Malpractice Trigger Testing Actions */}
-              <div className="w-full flex items-center gap-1 text-[9px] font-mono">
-                <button
-                  type="button"
-                  onClick={() => triggerGazeMalpractice('LOOKING_LEFT', -30)}
-                  className="flex-1 py-1 rounded bg-slate-800 hover:bg-rose-900/60 border border-slate-700 hover:border-rose-500 text-slate-300 hover:text-rose-200 font-bold transition-all cursor-pointer text-center"
-                  title="Test eye shift detection left"
-                >
-                  👁️ Move Left
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGazeDirection('CENTER');
-                    setGazeAngle(0);
-                  }}
-                  className="py-1 px-2 rounded bg-teal-500/20 text-teal-300 border border-teal-400/40 font-bold cursor-pointer"
-                  title="Reset gaze"
-                >
-                  🎯 Center
-                </button>
-                <button
-                  type="button"
-                  onClick={() => triggerGazeMalpractice('LOOKING_RIGHT', 30)}
-                  className="flex-1 py-1 rounded bg-slate-800 hover:bg-rose-900/60 border border-slate-700 hover:border-rose-500 text-slate-300 hover:text-rose-200 font-bold transition-all cursor-pointer text-center"
-                  title="Test eye shift detection right"
-                >
-                  👁️ Move Right
-                </button>
-              </div>
-
-              {/* Hardware Health Status Bar */}
-              <div className="w-full flex items-center justify-between text-[9px] font-mono text-slate-400 px-1">
-                <span className="flex items-center gap-1 text-teal-300">
-                  <Camera className="w-3 h-3 text-teal-400" /> Cam ON
-                </span>
-                <span className="flex items-center gap-1 text-teal-300">
-                  <Mic className="w-3 h-3 text-teal-400" /> Mic ({micLevel} dB)
-                </span>
-                <span className="text-slate-500">Latency: {networkPing}ms</span>
-              </div>
-            </>
-          )}
         </div>
 
         {/* ── Malpractice Warning Overlay Modal ─────────────────────────────── */}
