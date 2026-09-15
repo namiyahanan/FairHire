@@ -49,11 +49,102 @@ import { candidateApi } from '../../services/candidateApi';
 
 // Top Companies
 const TOP_COMPANIES = [
-  { name: 'GE Healthcare', rating: 3.9, reviews: '955 reviews', logoText: 'GE', bgColor: 'bg-sky-600', roleCount: 3 },
-  { name: 'Metropolis Health...', rating: 3.9, reviews: '1.1K+ reviews', logoText: 'MH', bgColor: 'bg-emerald-600', roleCount: 2 },
-  { name: 'Assa Abloy', rating: 3.6, reviews: '242 reviews', logoText: 'AA', bgColor: 'bg-slate-700', roleCount: 1 },
-  { name: 'Stripe', rating: 4.4, reviews: '3.2K+ reviews', logoText: 'S', bgColor: 'bg-indigo-600', roleCount: 4 },
-  { name: 'Atlassian', rating: 4.2, reviews: '2.8K+ reviews', logoText: 'AT', bgColor: 'bg-blue-600', roleCount: 3 }
+  {
+    name: 'GE Healthcare',
+    rating: 3.9,
+    reviews: '955 reviews',
+    logoText: 'GE',
+    bgColor: 'bg-sky-600',
+    roleCount: 3,
+    industry: 'Healthcare & MedTech AI',
+    location: 'Bengaluru / Hybrid',
+    description: 'Pioneering global precision care and intelligent healthcare software solutions.',
+    benefits: ['Comprehensive Medical Coverage', 'Flexible Remote Policy', 'Learning Stipend', '401k/PF Matching']
+  },
+  {
+    name: 'Metropolis Health',
+    rating: 3.9,
+    reviews: '1.1K+ reviews',
+    logoText: 'MH',
+    bgColor: 'bg-emerald-600',
+    roleCount: 2,
+    industry: 'Diagnostics & TeleHealth',
+    location: 'Mumbai / Hybrid',
+    description: 'Leading diagnostic network driving automated patient pathology intelligence platforms.',
+    benefits: ['Annual Wellness Allowance', 'Stock Options', 'Hybrid Work Model', 'Paid Parental Leave']
+  },
+  {
+    name: 'Assa Abloy',
+    rating: 3.6,
+    reviews: '242 reviews',
+    logoText: 'AA',
+    bgColor: 'bg-slate-700',
+    roleCount: 1,
+    industry: 'IoT Access & CyberSecurity',
+    location: 'Chennai / Onsite',
+    description: 'The global leader in smart door openings, biometric security and trusted IoT credentials.',
+    benefits: ['Certification Reimbursements', 'Annual Bonus', 'Onsite Gym & Cafeteria', 'Global Mobility']
+  },
+  {
+    name: 'Stripe',
+    rating: 4.4,
+    reviews: '3.2K+ reviews',
+    logoText: 'S',
+    bgColor: 'bg-indigo-600',
+    roleCount: 4,
+    industry: 'FinTech & Global Payments',
+    location: 'Remote / Global',
+    description: 'Financial infrastructure building economic rails for the internet with high-scale APIs.',
+    benefits: ['100% Remote Flexibility', 'Generous Equity Grants', 'Home Office Stipend', 'Wellness Fund']
+  },
+  {
+    name: 'Atlassian',
+    rating: 4.2,
+    reviews: '2.8K+ reviews',
+    logoText: 'AT',
+    bgColor: 'bg-blue-600',
+    roleCount: 3,
+    industry: 'Dev Tools & Cloud Collaboration',
+    location: 'Bengaluru / Remote',
+    description: 'Makers of Jira, Confluence, and Trello empowering distributed engineering teams worldwide.',
+    benefits: ['Work From Anywhere Policy', 'Mental Health Days', 'Education Fund', 'Top-tier Health Cover']
+  },
+  {
+    name: 'Google Cloud',
+    rating: 4.5,
+    reviews: '5.4K+ reviews',
+    logoText: 'G',
+    bgColor: 'bg-rose-500',
+    roleCount: 5,
+    industry: 'Cloud Architecture & GenAI',
+    location: 'Hyderabad / Bengaluru',
+    description: 'Building planetary-scale cloud infrastructure, Kubernetes, and next-gen AI services.',
+    benefits: ['Cutting-edge AI Compute Access', 'Gourmet Meals', 'Generous ESPP', 'Comprehensive Wellness']
+  },
+  {
+    name: 'Microsoft',
+    rating: 4.4,
+    reviews: '6.1K+ reviews',
+    logoText: 'MS',
+    bgColor: 'bg-cyan-600',
+    roleCount: 4,
+    industry: 'Enterprise Software & Azure',
+    location: 'Noida / Bengaluru / Remote',
+    description: 'Empowering every person and organization on the planet to achieve more through software.',
+    benefits: ['Azure Cloud Credits', 'Flexible Schedules', 'Tuition Assistance', 'Fitness Reimbursement']
+  },
+  {
+    name: 'Adobe',
+    rating: 4.3,
+    reviews: '2.5K+ reviews',
+    logoText: 'AD',
+    bgColor: 'bg-red-600',
+    roleCount: 3,
+    industry: 'Creative Cloud & Document AI',
+    location: 'Noida / Hybrid',
+    description: 'Changing the world through digital experiences, creative tools, and web intelligence.',
+    benefits: ['Creative Suite Subscription', 'Sabbatical Leave', 'Health Perks', 'Annual Bonus']
+  }
 ];
 
 const CandidateDashboard = () => {
@@ -73,6 +164,10 @@ const CandidateDashboard = () => {
 
   // Modal selection for role details & complete prep guide
   const [selectedJob, setSelectedJob] = useState(null);
+
+  // Modal selection for company details & view all companies
+  const [showAllCompaniesModal, setShowAllCompaniesModal] = useState(false);
+  const [selectedCompanyModal, setSelectedCompanyModal] = useState(null);
 
   // Search input
   const [searchQuery, setSearchQuery] = useState('');
@@ -228,11 +323,6 @@ const CandidateDashboard = () => {
         subtitle="Complete Software Engineering Preparation Guide, interview rounds breakdown, and verified live job openings."
         actions={
           <div className="flex items-center gap-2.5">
-            <Link to="/candidate/status">
-              <Button variant="outline" size="sm" icon={Award}>
-                Application Status
-              </Button>
-            </Link>
             <Link to="/candidate/profile">
               <Button variant="gradient" size="sm" icon={isProfileFrozen ? Award : Sparkles}>
                 {isProfileFrozen ? "Profile & Rating (9.4)" : "Profile Wizard"}
@@ -928,25 +1018,30 @@ const CandidateDashboard = () => {
             {/* 4. TOP COMPANIES SECTION */}
             <section className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm">
               <div className="flex items-center justify-between pb-5 border-b border-slate-100">
-                <h3 className="text-xl font-extrabold text-navy-900 tracking-tight">
-                  Top companies
-                </h3>
+                <div>
+                  <h3 className="text-xl font-extrabold text-navy-900 tracking-tight">
+                    Top companies
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Explore active hiring partners and enterprise engineering teams</p>
+                </div>
                 <button
-                  onClick={() => {
-                    setSelectedTrack('ALL');
-                    setSearchQuery('');
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setShowAllCompaniesModal(true);
                   }}
-                  className="text-xs font-bold text-teal-600 hover:text-navy-900 transition-colors cursor-pointer"
+                  className="text-xs font-bold text-teal-600 hover:text-navy-900 bg-teal-50 hover:bg-teal-100/80 px-3 py-1.5 rounded-xl border border-teal-200/60 transition-colors cursor-pointer"
                 >
                   View all
                 </button>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 pt-5">
-                {TOP_COMPANIES.map((comp, idx) => (
+                {TOP_COMPANIES.slice(0, 5).map((comp, idx) => (
                   <div
                     key={idx}
-                    className="p-5 rounded-2xl border border-slate-200 hover:border-teal-400 hover:shadow-md transition-all text-center flex flex-col items-center justify-between bg-slate-50/50"
+                    className="p-5 rounded-2xl border border-slate-200 hover:border-teal-400 hover:shadow-md transition-all text-center flex flex-col items-center justify-between bg-slate-50/50 hover:bg-white"
                   >
                     <div>
                       <div className={`w-14 h-14 rounded-2xl ${comp.bgColor} text-white flex items-center justify-center font-black text-lg mx-auto shadow-sm mb-3`}>
@@ -960,17 +1055,21 @@ const CandidateDashboard = () => {
                         <span>|</span>
                         <span className="text-[11px]">{comp.reviews}</span>
                       </div>
+                      <span className="inline-block mt-2 text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                        {comp.industry}
+                      </span>
                     </div>
 
                     <button
                       type="button"
-                      onClick={() => {
-                        setSearchQuery(comp.name.split(' ')[0]);
-                        window.scrollTo({ top: 400, behavior: 'smooth' });
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setSelectedCompanyModal(comp);
                       }}
                       className="mt-4 w-full py-2 rounded-xl text-xs font-bold text-teal-600 hover:bg-teal-50 border border-teal-200 transition-colors cursor-pointer"
                     >
-                      View jobs
+                      Company Profile & Roles
                     </button>
                   </div>
                 ))}
@@ -1156,6 +1255,215 @@ const CandidateDashboard = () => {
                   {appliedJobs[selectedJob.id] ? '✓ Application Submitted' : '1-Click Apply with AI Match'}
                 </Button>
               </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ================= 6. INTERACTIVE MODAL: ALL HIRING PARTNER COMPANIES DIRECTORY ================= */}
+      {showAllCompaniesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-navy-950/70 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-y-auto flex flex-col">
+            
+            {/* Header */}
+            <div className="p-6 sm:p-8 border-b border-slate-100 bg-gradient-to-r from-slate-50/80 to-white sticky top-0 z-10">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-teal-50 border border-teal-200 text-[11px] font-bold text-teal-700 mb-2">
+                    <Building2 className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Verified Hiring Network</span>
+                  </div>
+                  <h3 className="text-xl sm:text-2xl font-extrabold text-navy-900 tracking-tight">
+                    Top Hiring Partner Companies
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                    Explore active enterprise employers, tech stacks, perks, and verified open roles.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowAllCompaniesModal(false)}
+                  className="p-2 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors shrink-0 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Companies Grid */}
+            <div className="p-6 sm:p-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                {TOP_COMPANIES.map((comp, idx) => (
+                  <div
+                    key={idx}
+                    className="p-5 rounded-2xl border border-slate-200 hover:border-teal-400 hover:shadow-lg transition-all bg-white flex flex-col justify-between group"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-3.5">
+                        <div className={`w-12 h-12 rounded-xl ${comp.bgColor} text-white flex items-center justify-center font-black text-base shadow-sm`}>
+                          {comp.logoText}
+                        </div>
+                        <div className="flex items-center gap-1 text-xs font-bold text-amber-500 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200/60">
+                          <span>★ {comp.rating}</span>
+                        </div>
+                      </div>
+
+                      <h4 className="font-bold text-navy-900 text-sm group-hover:text-teal-700 transition-colors">
+                        {comp.name}
+                      </h4>
+                      <p className="text-xs text-slate-500 mt-0.5 font-medium">
+                        {comp.industry}
+                      </p>
+
+                      <div className="flex items-center gap-1 text-[11px] text-slate-500 mt-2">
+                        <MapPin className="w-3 h-3 text-slate-400" />
+                        <span>{comp.location}</span>
+                      </div>
+
+                      <p className="text-xs text-slate-600 mt-2.5 line-clamp-2 leading-relaxed">
+                        {comp.description}
+                      </p>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-teal-600">
+                        {comp.roleCount} Open Positions
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAllCompaniesModal(false);
+                          setSelectedCompanyModal(comp);
+                        }}
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-teal-50 hover:bg-teal-600 text-teal-700 hover:text-white transition-all cursor-pointer shadow-2xs"
+                      >
+                        Details
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-5 border-t border-slate-100 bg-slate-50/60 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setShowAllCompaniesModal(false)}
+                className="px-5 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-100 transition-all cursor-pointer"
+              >
+                Close Directory
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ================= 7. INTERACTIVE MODAL: SINGLE COMPANY PROFILE & CULTURE ================= */}
+      {selectedCompanyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-navy-950/70 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto flex flex-col">
+            
+            {/* Header */}
+            <div className="p-6 sm:p-8 border-b border-slate-100 bg-gradient-to-r from-slate-50/80 to-white sticky top-0 z-10">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className={`w-14 h-14 rounded-2xl ${selectedCompanyModal.bgColor} text-white flex items-center justify-center font-black text-xl shadow-md shrink-0`}>
+                    {selectedCompanyModal.logoText}
+                  </div>
+                  <div>
+                    <h3 className="text-xl sm:text-2xl font-extrabold text-navy-900 tracking-tight">
+                      {selectedCompanyModal.name}
+                    </h3>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-1">
+                      <span className="font-semibold text-teal-700 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                        {selectedCompanyModal.industry}
+                      </span>
+                      <span>•</span>
+                      <span className="flex items-center gap-1 font-bold text-amber-500">
+                        ★ {selectedCompanyModal.rating} ({selectedCompanyModal.reviews})
+                      </span>
+                      <span>•</span>
+                      <span>{selectedCompanyModal.location}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedCompanyModal(null)}
+                  className="p-2 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors shrink-0 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 sm:p-8 space-y-6">
+              
+              {/* Overview */}
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                  Company Overview
+                </h4>
+                <p className="text-sm text-slate-700 leading-relaxed">
+                  {selectedCompanyModal.description}
+                </p>
+              </div>
+
+              {/* Benefits */}
+              {selectedCompanyModal.benefits && (
+                <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-teal-600" />
+                    <span>Employee Benefits & Culture Highlights</span>
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {selectedCompanyModal.benefits.map((benefit, bIdx) => (
+                      <div key={bIdx} className="flex items-center gap-2 text-xs font-medium text-slate-700">
+                        <CheckCircle2 className="w-4 h-4 text-teal-600 shrink-0" />
+                        <span>{benefit}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Hiring Track */}
+              <div className="p-4 rounded-2xl bg-teal-50/60 border border-teal-200 flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-teal-900">Active Hiring Track</h4>
+                  <p className="text-xs text-teal-700 mt-0.5">
+                    {selectedCompanyModal.roleCount} verified engineering positions ready for candidate matching.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCompanyModal(null);
+                    setSearchQuery(selectedCompanyModal.name.split(' ')[0]);
+                  }}
+                  className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs shrink-0 cursor-pointer"
+                >
+                  Filter Roles
+                </button>
+              </div>
+
+            </div>
+
+            {/* Footer */}
+            <div className="p-5 border-t border-slate-100 bg-slate-50/60 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setSelectedCompanyModal(null)}
+                className="px-5 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-100 transition-all cursor-pointer"
+              >
+                Close
+              </button>
             </div>
 
           </div>

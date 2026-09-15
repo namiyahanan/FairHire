@@ -128,11 +128,6 @@ const InterviewBooking = () => {
         }
         actions={
           <div className="flex items-center gap-2">
-            <Link to="/candidate/status">
-              <Button variant="outline" size="sm" icon={Award}>
-                Application Status
-              </Button>
-            </Link>
             <Link to="/candidate">
               <Button variant="outline" size="sm" icon={BookOpen}>
                 Preparation Guide
