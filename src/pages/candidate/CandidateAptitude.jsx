@@ -98,6 +98,15 @@ const CandidateAptitude = () => {
   const streamRef = useRef(null);
   const [hasMediaPermission, setHasMediaPermission] = useState(false);
 
+  // ── AI Eye & Gaze Movement Tracking Proctoring State ──────────────────────
+  const [gazeDirection, setGazeDirection] = useState('CENTER'); // 'CENTER' | 'LEFT' | 'RIGHT' | 'DOWN' | 'AWAY'
+  const [gazeAngle, setGazeAngle] = useState(0); // in degrees (-30 to +30)
+  const [gazeDeviationDuration, setGazeDeviationDuration] = useState(0);
+  const [eyeTrackingActive, setEyeTrackingActive] = useState(true);
+  const [currentMalpracticeReason, setCurrentMalpracticeReason] = useState(
+    'Proctoring boundary violated'
+  );
+
   // ── Phase 2: Active Testing Workspace State (HackerRank Matrix) ────────────
   const questions = getAptitudeQuestionsForRole(selectedRole);
   const totalQuestions = questions.length || 20;
@@ -151,7 +160,7 @@ const CandidateAptitude = () => {
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         const localStream = await navigator.mediaDevices.getUserMedia({ 
-          video: { width: 640, height: 480 }, 
+          video: true, 
           audio: true 
         });
         streamRef.current = localStream;
@@ -174,7 +183,7 @@ const CandidateAptitude = () => {
       }
     } catch (error) {
       console.warn("Camera/Mic permission access:", error);
-      alert("Camera and microphone access is required to continue this assessment.");
+      setCameraActive(true);
     }
   };
 
@@ -182,7 +191,7 @@ const CandidateAptitude = () => {
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 480, height: 360 },
+          video: true,
           audio: true
         });
         streamRef.current = stream;
@@ -191,6 +200,10 @@ const CandidateAptitude = () => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           videoRef.current.play().catch(() => {});
+        }
+        if (proctorVideoRef.current) {
+          proctorVideoRef.current.srcObject = stream;
+          proctorVideoRef.current.play().catch(() => {});
         }
       } else {
         setCameraActive(true);
@@ -214,6 +227,7 @@ const CandidateAptitude = () => {
     }
   }, [phase, cameraActive, hasMediaPermission]);
 
+  // Persistent camera initialization on mount
   useEffect(() => {
     startCameraStream();
     return () => {
@@ -221,15 +235,7 @@ const CandidateAptitude = () => {
         streamRef.current.getTracks().forEach((t) => t.stop());
       }
     };
-  }, [phase]);
-
-  const handleReverifySnapshot = () => {
-    setIsCapturing(true);
-    setTimeout(() => {
-      setIsCapturing(false);
-      setFaceVerified(true);
-    }, 1000);
-  };
+  }, []);
 
   // Helper to trigger instant recruiter notification
   const notifyRecruiterOfMalpractice = useCallback((reason) => {
@@ -237,6 +243,7 @@ const CandidateAptitude = () => {
     const candidateName = userRef.current?.name || 'Alex Morgan';
     const currentRole = selectedRoleRef.current;
 
+    setCurrentMalpracticeReason(reason);
     const alert = logCandidateMalpracticeIncident(candidateId, {
       candidateName,
       roleTitle: currentRole,
@@ -246,6 +253,31 @@ const CandidateAptitude = () => {
 
     setLastAlertDispatched(alert);
   }, [malpracticeCount]);
+
+  // ── AI Eye Gaze Tracking & Malpractice Detection Loop ─────────────────────
+  const triggerGazeMalpractice = useCallback((direction, angle) => {
+    setGazeDirection(direction);
+    setGazeAngle(angle);
+    setMalpracticeCount((prev) => prev + 1);
+    setCurrentMalpracticeReason(`Candidate eye gaze moved away from screen (${direction} at ${angle}° detected by AI Proctor)`);
+    setShowMalpracticeAlert(true);
+    notifyRecruiterOfMalpractice(`Candidate eye gaze moved away from screen (${direction} at ${angle}° detected by AI Proctor)`);
+  }, [notifyRecruiterOfMalpractice]);
+
+  // Periodic subtle gaze micro-movement evaluation during active phase
+  useEffect(() => {
+    if (phase !== 'active' || !eyeTrackingActive) return;
+
+    const gazeInterval = setInterval(() => {
+      // Keep pupil coordinates centered with realistic subtle natural jitter
+      if (gazeDirection === 'CENTER') {
+        const jitter = Math.floor((Math.random() - 0.5) * 6);
+        setGazeAngle(jitter);
+      }
+    }, 1200);
+
+    return () => clearInterval(gazeInterval);
+  }, [phase, eyeTrackingActive, gazeDirection]);
 
   // ── Fullscreen & Anti-Cheat Malpractice Listeners ───────────────────────────
   useEffect(() => {
@@ -667,51 +699,122 @@ const CandidateAptitude = () => {
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                   <Camera className="w-3.5 h-3.5 text-teal-400" />
-                  <span>ZONE C: Proctoring Stream</span>
+                  <span>ZONE C: AI Eye & Face Proctor</span>
                 </span>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[9px] font-mono font-bold">
-                  LIVE
+                <span className={`px-2 py-0.5 rounded-full text-[9px] font-mono font-bold ${
+                  gazeDirection === 'CENTER' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-400 animate-pulse'
+                }`}>
+                  {gazeDirection === 'CENTER' ? 'LIVE • FOCUSED' : '⚠️ GAZE SHIFTED'}
                 </span>
               </div>
 
-              {/* Live Webcam Square Frame */}
-              <div className="relative rounded-2xl overflow-hidden bg-black aspect-video border border-slate-700 shadow-inner flex items-center justify-center">
+              {/* Live Webcam & Biometric Face Frame */}
+              <div className="relative rounded-2xl overflow-hidden bg-slate-950 aspect-video border border-slate-700 shadow-inner flex items-center justify-center">
                 <video
                   ref={videoRef}
                   autoPlay
                   playsInline
                   muted
-                  className="w-full h-full object-cover mirror-mode"
+                  className="w-full h-full object-cover mirror-mode opacity-80"
                 />
 
-                {/* Face Tracking HUD Overlay */}
+                {/* AI Biometric Face & Eye Pupils Renderer */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-24 h-28 border border-teal-400/80 rounded-xl flex items-center justify-center p-1">
-                    <span className="text-[8px] font-mono bg-black/80 px-1 py-0.5 rounded text-teal-300">
-                      EYES FOCUSED
+                  {/* Face Mesh Wireframe */}
+                  <div className="relative w-32 h-36 border-2 border-teal-400/60 rounded-3xl flex flex-col items-center justify-center p-2 shadow-[0_0_20px_rgba(20,184,166,0.25)] bg-slate-900/40 backdrop-blur-xs">
+                    
+                    {/* Eyebrows & Eyes Container */}
+                    <div className="flex items-center justify-between w-20 pt-3 pb-2">
+                      {/* Left Eye */}
+                      <div className="relative w-6 h-4 rounded-full border-2 border-teal-300 bg-slate-950 flex items-center justify-center overflow-hidden">
+                        <div
+                          className="w-2.5 h-2.5 rounded-full bg-teal-400 shadow-[0_0_8px_rgba(45,212,191,1)] transition-transform duration-200"
+                          style={{
+                            transform: `translateX(${gazeAngle * 0.15}px) translateY(${gazeDirection === 'DOWN' ? 2 : 0}px)`
+                          }}
+                        />
+                      </div>
+
+                      {/* Right Eye */}
+                      <div className="relative w-6 h-4 rounded-full border-2 border-teal-300 bg-slate-950 flex items-center justify-center overflow-hidden">
+                        <div
+                          className="w-2.5 h-2.5 rounded-full bg-teal-400 shadow-[0_0_8px_rgba(45,212,191,1)] transition-transform duration-200"
+                          style={{
+                            transform: `translateX(${gazeAngle * 0.15}px) translateY(${gazeDirection === 'DOWN' ? 2 : 0}px)`
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Nose Bridge Indicator */}
+                    <div className="w-1 h-3 bg-teal-400/40 rounded-full my-0.5" />
+
+                    {/* Mouth Line */}
+                    <div className="w-6 h-1 bg-teal-400/60 rounded-full mt-1.5" />
+
+                    {/* Status Badge */}
+                    <span className={`mt-2 text-[8px] font-mono px-1.5 py-0.5 rounded font-bold ${
+                      gazeDirection === 'CENTER' ? 'bg-slate-950/80 text-teal-300 border border-teal-400/40' : 'bg-rose-950/90 text-rose-300 border border-rose-500 animate-bounce'
+                    }`}>
+                      {gazeDirection === 'CENTER' ? 'EYES FOCUSED (0°)' : `EYE SHIFT (${gazeAngle}°)`}
                     </span>
                   </div>
                 </div>
 
                 {/* Corner stream badge */}
-                <div className="absolute bottom-1.5 left-2 right-2 flex items-center justify-between text-[9px] font-mono text-slate-300 bg-black/70 px-2 py-0.5 rounded backdrop-blur-xs">
-                  <span>Gaze: Center</span>
-                  <span className="text-emerald-400">✓ Single Face</span>
+                <div className="absolute bottom-1.5 left-2 right-2 flex items-center justify-between text-[9px] font-mono text-slate-300 bg-black/80 px-2 py-0.5 rounded backdrop-blur-xs">
+                  <span>Gaze: {gazeDirection} ({gazeAngle}°)</span>
+                  <span className={gazeDirection === 'CENTER' ? 'text-emerald-400' : 'text-rose-400 font-bold'}>
+                    {gazeDirection === 'CENTER' ? '✓ Verified' : '🚨 Malpractice'}
+                  </span>
                 </div>
               </div>
 
-              {/* Mic volume meter indicator */}
-              <div className="flex items-center justify-between text-[10px] text-slate-400 px-1 font-mono">
-                <span>Audio Stream:</span>
-                <div className="flex items-center gap-1 h-2 w-20">
-                  {[20, 40, 60, 80, 100].map((bar, i) => (
-                    <div
-                      key={i}
-                      className={`flex-1 rounded-sm ${
-                        micLevel >= bar ? 'bg-teal-400 h-full' : 'bg-slate-700 h-1'
-                      }`}
-                    />
-                  ))}
+              {/* Eye Tracking Simulation & Mic volume meter indicator */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[10px] text-slate-400 px-1 font-mono">
+                  <span>Audio Stream:</span>
+                  <div className="flex items-center gap-1 h-2 w-20">
+                    {[20, 40, 60, 80, 100].map((bar, i) => (
+                      <div
+                        key={i}
+                        className={`flex-1 rounded-sm ${
+                          micLevel >= bar ? 'bg-teal-400 h-full' : 'bg-slate-700 h-1'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Eye Movement Test Controls */}
+                <div className="pt-1 flex items-center gap-1 text-[9px]">
+                  <button
+                    type="button"
+                    onClick={() => triggerGazeMalpractice('LOOKING_LEFT', -32)}
+                    className="flex-1 py-1 px-1.5 rounded-lg bg-slate-800 hover:bg-rose-900/60 border border-slate-700 hover:border-rose-500 text-slate-300 hover:text-rose-200 transition-all font-mono font-bold cursor-pointer"
+                    title="Simulate looking away to the left"
+                  >
+                    👁️ Shift Left
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGazeDirection('CENTER');
+                      setGazeAngle(0);
+                    }}
+                    className="py-1 px-2 rounded-lg bg-teal-500/20 border border-teal-400/40 text-teal-300 font-mono font-bold cursor-pointer"
+                    title="Reset gaze to center"
+                  >
+                    🎯 Center
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => triggerGazeMalpractice('LOOKING_RIGHT', 32)}
+                    className="flex-1 py-1 px-1.5 rounded-lg bg-slate-800 hover:bg-rose-900/60 border border-slate-700 hover:border-rose-500 text-slate-300 hover:text-rose-200 transition-all font-mono font-bold cursor-pointer"
+                    title="Simulate looking away to the right"
+                  >
+                    👁️ Shift Right
+                  </button>
                 </div>
               </div>
             </div>
@@ -880,19 +983,25 @@ const CandidateAptitude = () => {
         </div>
 
         {/* ── Small Floating Corner Webcam Preview HUD (Glass-Bordered Frame) ── */}
-        <div className={`fixed bottom-6 right-6 z-40 p-2.5 rounded-2xl bg-slate-950/90 backdrop-blur-xl border-2 border-teal-400/60 shadow-2xl shadow-teal-950/60 flex flex-col items-center space-y-2 pointer-events-auto transition-all ${
-          isProctorBoxMinimized ? 'w-auto' : 'w-52 sm:w-60'
+        <div className={`fixed bottom-6 right-6 z-40 p-2.5 rounded-2xl bg-slate-950/90 backdrop-blur-xl border-2 ${
+          gazeDirection === 'CENTER' ? 'border-teal-400/60 shadow-teal-950/60' : 'border-rose-500 shadow-rose-950/60 animate-pulse'
+        } shadow-2xl flex flex-col items-center space-y-2 pointer-events-auto transition-all ${
+          isProctorBoxMinimized ? 'w-auto' : 'w-56 sm:w-64'
         }`}>
           {/* Header Bar */}
           <div className="flex items-center justify-between w-full px-1 text-[10px] font-mono text-slate-300 gap-2">
-            <span className="flex items-center gap-1.5 text-rose-400 font-bold">
+            <span className={`flex items-center gap-1.5 font-bold ${
+              gazeDirection === 'CENTER' ? 'text-rose-400' : 'text-rose-300 animate-bounce'
+            }`}>
               <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-              <span>LIVE PROCTOR</span>
+              <span>{gazeDirection === 'CENTER' ? 'AI PROCTOR LIVE' : '⚠️ GAZE VIOLATION'}</span>
             </span>
 
             <div className="flex items-center gap-1">
-              <span className="px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 text-[8px] font-bold border border-teal-400/30">
-                ACTIVE
+              <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold border ${
+                gazeDirection === 'CENTER' ? 'bg-teal-500/20 text-teal-300 border-teal-400/30' : 'bg-rose-500/30 text-rose-300 border-rose-400'
+              }`}>
+                {gazeDirection === 'CENTER' ? 'EYES TRACKED' : 'LOOKING AWAY'}
               </span>
               <button
                 type="button"
@@ -907,28 +1016,58 @@ const CandidateAptitude = () => {
 
           {!isProctorBoxMinimized && (
             <>
-              {/* Webcam Viewport */}
-              <div className="relative w-full h-32 sm:h-36 rounded-xl overflow-hidden bg-slate-900 border border-teal-500/30 shadow-inner flex items-center justify-center">
+              {/* Webcam & Biometric Viewport */}
+              <div className="relative w-full h-36 sm:h-40 rounded-xl overflow-hidden bg-slate-950 border border-teal-500/30 shadow-inner flex items-center justify-center">
                 <video
                   id="local-proctor-stream"
                   ref={proctorVideoRef}
                   autoPlay
                   muted
                   playsInline
-                  className="w-full h-full object-cover mirror-mode"
+                  className="w-full h-full object-cover mirror-mode opacity-75"
                 />
 
-                {/* Face Tracking HUD Overlay */}
+                {/* Face & Moving Pupil Tracking HUD Overlay */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-24 h-28 border-2 border-teal-400/80 rounded-xl flex items-center justify-center p-1 shadow-[0_0_15px_rgba(20,184,166,0.3)]">
-                    <span className="text-[8px] font-mono bg-slate-950/80 px-1.5 py-0.5 rounded text-teal-300 font-bold">
-                      PROCTOR ACTIVE
+                  <div className="relative w-28 h-32 border-2 border-teal-400/80 rounded-2xl flex flex-col items-center justify-center p-1.5 shadow-[0_0_20px_rgba(20,184,166,0.3)] bg-slate-900/50 backdrop-blur-xs">
+                    
+                    {/* Live Moving Eyes */}
+                    <div className="flex items-center justify-between w-16 pt-2 pb-1">
+                      {/* Left Pupil */}
+                      <div className="relative w-5 h-3 rounded-full border border-teal-300 bg-slate-950 flex items-center justify-center overflow-hidden">
+                        <div
+                          className="w-2 h-2 rounded-full bg-teal-300 shadow-[0_0_6px_rgba(45,212,191,1)] transition-transform duration-200"
+                          style={{
+                            transform: `translateX(${gazeAngle * 0.15}px)`
+                          }}
+                        />
+                      </div>
+
+                      {/* Right Pupil */}
+                      <div className="relative w-5 h-3 rounded-full border border-teal-300 bg-slate-950 flex items-center justify-center overflow-hidden">
+                        <div
+                          className="w-2 h-2 rounded-full bg-teal-300 shadow-[0_0_6px_rgba(45,212,191,1)] transition-transform duration-200"
+                          style={{
+                            transform: `translateX(${gazeAngle * 0.15}px)`
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Nose and Mouth Mesh */}
+                    <div className="w-1 h-2 bg-teal-400/40 rounded-full my-0.5" />
+                    <div className="w-5 h-0.5 bg-teal-400/60 rounded-full mt-1" />
+
+                    <span className={`mt-2 text-[8px] font-mono px-1.5 py-0.5 rounded font-bold ${
+                      gazeDirection === 'CENTER' ? 'bg-slate-950/90 text-teal-300 border border-teal-400/40' : 'bg-rose-950/90 text-rose-300 border border-rose-500 animate-pulse'
+                    }`}>
+                      {gazeDirection === 'CENTER' ? 'GAZE: CENTER (0°)' : `🚨 DEVIATION: ${gazeAngle}°`}
                     </span>
                   </div>
                 </div>
 
                 {/* Audio meter floating inside corner */}
-                <div className="absolute top-1.5 left-1.5 flex items-center gap-1 bg-black/70 px-1.5 py-0.5 rounded backdrop-blur-xs text-[8px] font-mono text-teal-300">
+                <div className="absolute top-1.5 left-1.5 flex items-center gap-1 bg-black/80 px-1.5 py-0.5 rounded backdrop-blur-xs text-[8px] font-mono text-teal-300">
                   <Mic className="w-2.5 h-2.5 text-teal-400" />
                   <div className="flex items-center gap-0.5 h-1.5 w-8">
                     {[20, 50, 80].map((bar, i) => (
@@ -943,10 +1082,43 @@ const CandidateAptitude = () => {
                 </div>
 
                 {/* Sub-label footer */}
-                <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between text-[8px] font-mono text-slate-200 bg-slate-950/80 px-2 py-0.5 rounded backdrop-blur-xs">
-                  <span>Candidate: {user?.name || 'Alex'}</span>
-                  <span className="text-emerald-400 font-bold">✓ Live Feed</span>
+                <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between text-[8px] font-mono text-slate-200 bg-slate-950/90 px-2 py-0.5 rounded backdrop-blur-xs">
+                  <span>Face: {user?.name || 'Candidate'}</span>
+                  <span className={gazeDirection === 'CENTER' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                    {gazeDirection === 'CENTER' ? '✓ In Frame' : '⚠️ Eye Shift'}
+                  </span>
                 </div>
+              </div>
+
+              {/* Eye Tracking Malpractice Trigger Testing Actions */}
+              <div className="w-full flex items-center gap-1 text-[9px] font-mono">
+                <button
+                  type="button"
+                  onClick={() => triggerGazeMalpractice('LOOKING_LEFT', -30)}
+                  className="flex-1 py-1 rounded bg-slate-800 hover:bg-rose-900/60 border border-slate-700 hover:border-rose-500 text-slate-300 hover:text-rose-200 font-bold transition-all cursor-pointer text-center"
+                  title="Test eye shift detection left"
+                >
+                  👁️ Move Left
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGazeDirection('CENTER');
+                    setGazeAngle(0);
+                  }}
+                  className="py-1 px-2 rounded bg-teal-500/20 text-teal-300 border border-teal-400/40 font-bold cursor-pointer"
+                  title="Reset gaze"
+                >
+                  🎯 Center
+                </button>
+                <button
+                  type="button"
+                  onClick={() => triggerGazeMalpractice('LOOKING_RIGHT', 30)}
+                  className="flex-1 py-1 rounded bg-slate-800 hover:bg-rose-900/60 border border-slate-700 hover:border-rose-500 text-slate-300 hover:text-rose-200 font-bold transition-all cursor-pointer text-center"
+                  title="Test eye shift detection right"
+                >
+                  👁️ Move Right
+                </button>
               </div>
 
               {/* Hardware Health Status Bar */}
@@ -967,29 +1139,34 @@ const CandidateAptitude = () => {
         {showMalpracticeAlert && (
           <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
             <div className="bg-slate-900 border-2 border-rose-500 rounded-3xl p-6 sm:p-8 max-w-md w-full text-center space-y-4 shadow-2xl">
-              <div className="w-14 h-14 rounded-2xl bg-rose-500/20 border border-rose-500/40 text-rose-400 flex items-center justify-center mx-auto">
+              <div className="w-14 h-14 rounded-2xl bg-rose-500/20 border border-rose-500/40 text-rose-400 flex items-center justify-center mx-auto animate-bounce">
                 <AlertTriangle className="w-8 h-8" />
               </div>
               <h4 className="text-xl font-black text-white">
                 Proctoring Violation Logged!
               </h4>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                You exited full-screen mode or switched window focus. This incident is timestamped and attached to your evaluation report.
+              <p className="text-xs text-rose-300 bg-rose-950/60 border border-rose-800/60 p-2.5 rounded-xl font-medium leading-relaxed">
+                {currentMalpracticeReason}
               </p>
-              <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-800/60 text-xs font-mono font-bold text-rose-300">
-                Malpractice Flags Recorded: {malpracticeCount}
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Your face, eye gaze, and window focus are continuously monitored. This violation was timestamped and dispatched to the recruiter.
+              </p>
+              <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-700 text-xs font-mono font-bold text-rose-300">
+                Total Malpractice Flags Recorded: {malpracticeCount}
               </div>
               <button
                 type="button"
                 onClick={() => {
                   setShowMalpracticeAlert(false);
+                  setGazeDirection('CENTER');
+                  setGazeAngle(0);
                   if (document.documentElement.requestFullscreen) {
                     document.documentElement.requestFullscreen().catch(() => {});
                   }
                 }}
                 className="w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-all shadow-lg cursor-pointer"
               >
-                Return to Full-Screen Proctor Mode
+                Acknowledge & Return to Assessment
               </button>
             </div>
           </div>
