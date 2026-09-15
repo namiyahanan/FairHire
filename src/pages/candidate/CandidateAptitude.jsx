@@ -135,7 +135,7 @@ const CandidateAptitude = () => {
   const userRef = useRef(user);
   userRef.current = user;
 
-  // ── Hardware stream initialization ─────────────────────────────────────────
+  // ── Hardware stream initialization (Ping / Mic Simulation) ────────────────
   useEffect(() => {
     if (typeof window !== 'undefined') {
       setScreenRes(`${window.screen.width} x ${window.screen.height}`);
@@ -155,7 +155,7 @@ const CandidateAptitude = () => {
     };
   }, []);
 
-  // ── MediaDevices Live Hardware Proctoring API ────────────────────────────
+  // ── MediaDevices Explicit Permission & Proctoring Activation ─────────────
   const activateHardwareProctoring = async () => {
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -172,54 +172,22 @@ const CandidateAptitude = () => {
           proctorVideoWindow.srcObject = localStream;
           proctorVideoWindow.play().catch(() => {});
         }
-        if (proctorVideoRef.current) {
-          proctorVideoRef.current.srcObject = localStream;
-          proctorVideoRef.current.play().catch(() => {});
-        }
         if (videoRef.current) {
           videoRef.current.srcObject = localStream;
           videoRef.current.play().catch(() => {});
         }
+        return localStream;
       }
     } catch (error) {
       console.warn("Camera/Mic permission access:", error);
-      setCameraActive(true);
-    }
-  };
-
-  const startCameraStream = async () => {
-    try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true
-        });
-        streamRef.current = stream;
-        setHasMediaPermission(true);
-        setCameraActive(true);
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
-        if (proctorVideoRef.current) {
-          proctorVideoRef.current.srcObject = stream;
-          proctorVideoRef.current.play().catch(() => {});
-        }
-      } else {
-        setCameraActive(true);
-      }
-    } catch (err) {
-      setCameraActive(true);
+      alert("Camera and microphone access is required to enter this assessment. Please allow access in your browser prompt.");
+      return null;
     }
   };
 
   // Re-bind video streams whenever phase changes or stream is available
   useEffect(() => {
     if (streamRef.current) {
-      if (proctorVideoRef.current) {
-        proctorVideoRef.current.srcObject = streamRef.current;
-        proctorVideoRef.current.play().catch(() => {});
-      }
       if (videoRef.current) {
         videoRef.current.srcObject = streamRef.current;
         videoRef.current.play().catch(() => {});
@@ -227,9 +195,8 @@ const CandidateAptitude = () => {
     }
   }, [phase, cameraActive, hasMediaPermission]);
 
-  // Persistent camera initialization on mount
+  // Clean up all hardware streams on unmount
   useEffect(() => {
-    startCameraStream();
     return () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
@@ -367,10 +334,15 @@ const CandidateAptitude = () => {
   }, [notifyRecruiterOfMalpractice]);
 
   // ── Lock Environment & Launch Assessment Trigger ──────────────────────────
-  const handleLockAndStart = () => {
+  const handleLockAndStart = async () => {
     if (!rulesAgreed) return;
 
-    const proceedToExam = () => {
+    try {
+      const stream = await activateHardwareProctoring();
+      if (!stream) {
+        return; // Permission was denied or error occurred
+      }
+
       setIsFullscreen(true);
       setCurrentIndex(0);
       setAnswers({});
@@ -379,22 +351,13 @@ const CandidateAptitude = () => {
       setTotalTimeRemaining(2700); // 45 minutes
       setMalpracticeCount(0);
       setPhase('active');
-      
-      // Activate hardware proctoring right after fullscreen is successfully entered
-      setTimeout(() => {
-        activateHardwareProctoring();
-      }, 50);
-    };
 
-    const el = document.documentElement;
-    if (el.requestFullscreen) {
-      el.requestFullscreen().then(() => {
-        proceedToExam();
-      }).catch(() => {
-        proceedToExam();
-      });
-    } else {
-      proceedToExam();
+      const el = document.documentElement;
+      if (el.requestFullscreen) {
+        el.requestFullscreen().catch(() => {});
+      }
+    } catch (err) {
+      console.warn("Fullscreen/hardware lock error:", err);
     }
   };
 
@@ -1250,7 +1213,7 @@ const CandidateAptitude = () => {
                     </div>
 
                     {/* Action Button on Card Footer */}
-                    <div className="pt-5 mt-4 border-t border-slate-100 flex items-center gap-2">
+                    <div className="pt-5 mt-4 border-t border-slate-100">
                       <button
                         type="button"
                         onClick={() => {
@@ -1261,36 +1224,10 @@ const CandidateAptitude = () => {
                           setPhase('gate');
                           window.scrollTo({ top: 0, behavior: 'smooth' });
                         }}
-                        className="flex-1 py-3 px-3 rounded-2xl bg-navy-900 hover:bg-teal-600 text-white font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all shadow-md group-hover:shadow-teal-600/20 cursor-pointer active:scale-[0.98]"
+                        className="w-full py-3 px-4 rounded-2xl bg-navy-900 hover:bg-teal-600 text-white font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-md group-hover:shadow-teal-600/20 cursor-pointer active:scale-[0.98]"
                       >
                         <span>Start Practice Pack</span>
                         <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const chosenPack = pack || MNC_PRACTICE_MODULES[0];
-                          setSelectedCompanyPack(chosenPack);
-                          setSelectedRole(chosenPack.title);
-                          setRulesAgreed(true);
-                          setIsFullscreen(true);
-                          setCurrentIndex(0);
-                          setAnswers({});
-                          setFlaggedQuestions({});
-                          setVisitedQuestions({ 1: true });
-                          setTotalTimeRemaining(2700);
-                          setMalpracticeCount(0);
-                          setPhase('active');
-                          setTimeout(() => {
-                            activateHardwareProctoring();
-                          }, 50);
-                        }}
-                        className="py-3 px-3 rounded-2xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1 transition-all shadow-md cursor-pointer active:scale-[0.98]"
-                        title="Launch test immediately"
-                      >
-                        <Play className="w-3.5 h-3.5 fill-current" />
-                        <span className="hidden sm:inline">Exam</span>
                       </button>
                     </div>
 
@@ -1717,7 +1654,7 @@ const CandidateAptitude = () => {
                         {rulesAgreed && <Check className="w-3.5 h-3.5" />}
                       </div>
                       <span className="text-xs text-slate-700 font-medium leading-relaxed">
-                        I confirm my hardware stream is calibrated, I am alone in the room, and I agree to abide by all anti-cheat assessment rules.
+                        I understand and grant permission for FairHire to access my live camera and microphone for continuous AI proctoring, and I agree to abide by all anti-cheat assessment rules.
                       </span>
                     </label>
                   </div>
@@ -1735,11 +1672,11 @@ const CandidateAptitude = () => {
                       }`}
                     >
                       <Lock className="w-5 h-5" />
-                      <span>🔒 Lock Environment & Start Assessment</span>
+                      <span>✓ Yes, Allow Camera & Mic Access & Enter Assessment</span>
                     </button>
                     {!rulesAgreed && (
                       <p className="text-[11px] text-center text-slate-400 mt-2">
-                        Please check the declaration box above to enable the lockdown trigger.
+                        Please check the declaration box above to enable the access permission trigger.
                       </p>
                     )}
                   </div>
