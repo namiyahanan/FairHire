@@ -393,3 +393,97 @@ export const resetCandidateHiringState = (candidateId) => {
   saveHiringStore(store);
   return getCandidateHiringState(candidateId);
 };
+
+export const updateCandidateAssessmentSubmission = (candidateId = 'CAND-8492', submissionPayload = null) => {
+  return candidateAttendRound(candidateId, 0, null, submissionPayload);
+};
+
+// 7. Instant Malpractice Logging & Recruiter Alert Dispatch
+const RECRUITER_ALERTS_KEY = 'fairhire_recruiter_alerts';
+
+export const getRecruiterAlerts = () => {
+  try {
+    const raw = localStorage.getItem(RECRUITER_ALERTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+export const saveRecruiterAlerts = (alerts) => {
+  try {
+    localStorage.setItem(RECRUITER_ALERTS_KEY, JSON.stringify(alerts));
+  } catch (e) {}
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('fairhire_recruiter_alert_dispatched'));
+    window.dispatchEvent(new CustomEvent('storage'));
+  }
+};
+
+export const logCandidateMalpracticeIncident = (candidateId = 'CAND-8492', details = {}) => {
+  const store = getHiringStore();
+  const current = getCandidateHiringState(candidateId);
+  const now = new Date();
+  const timeFormatted = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  const alertItem = {
+    id: `ALERT-MALPRACTICE-${Date.now()}`,
+    candidateId,
+    candidateName: details.candidateName || 'Alex Morgan',
+    roleTitle: details.roleTitle || 'Full Stack Engineer',
+    type: 'MALPRACTICE_ALERT',
+    severity: 'HIGH',
+    title: 'Proctoring Violation: Fullscreen Exited',
+    message: `Candidate ${details.candidateName || 'Alex Morgan'} (${candidateId}) attempted to exit full-screen proctoring mode during the AI Aptitude Assessment for ${details.roleTitle || 'target role'}.`,
+    reason: details.reason || 'Candidate rejected or exited full-screen proctoring mode',
+    flagCount: details.flagCount || 1,
+    timestamp: now.toISOString(),
+    timeFormatted,
+    read: false
+  };
+
+  // 1. Add to Recruiter Alerts Stream
+  const existingAlerts = getRecruiterAlerts();
+  saveRecruiterAlerts([alertItem, ...existingAlerts]);
+
+  // 2. Add to Candidate Timeline & Update Malpractice Count
+  const currentMalpractice = (current.malpracticeCount || 0) + 1;
+  const updatedTimeline = [
+    ...current.timeline,
+    {
+      stage: 'Review',
+      title: `🚨 Anti-Cheat Malpractice Alert #${currentMalpractice}: Fullscreen Exited`,
+      timestamp: now.toISOString(),
+      isMalpracticeAlert: true,
+      note: `Automated proctoring trigger: Candidate exited full-screen environment. Instant alert dispatched to recruiter dashboard at ${timeFormatted}.`
+    }
+  ];
+
+  const updated = {
+    ...current,
+    malpracticeCount: currentMalpractice,
+    lastMalpracticeAt: now.toISOString(),
+    timeline: updatedTimeline
+  };
+
+  store[candidateId] = updated;
+  saveHiringStore(store);
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('fairhire_malpractice_alert', { detail: alertItem }));
+  }
+
+  return alertItem;
+};
+
+export const markRecruiterAlertAsRead = (alertId) => {
+  const alerts = getRecruiterAlerts();
+  const updated = alerts.map(a => a.id === alertId ? { ...a, read: true } : a);
+  saveRecruiterAlerts(updated);
+  return updated;
+};
+
+export const clearRecruiterAlerts = () => {
+  saveRecruiterAlerts([]);
+  return [];
+};

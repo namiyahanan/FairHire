@@ -16,6 +16,7 @@ import CandidateProfileWizard from '../pages/candidate/CandidateProfileWizard';
 import CandidateDashboard from '../pages/candidate/CandidateDashboard';
 import ApplicationStatus from '../pages/candidate/ApplicationStatus';
 import InterviewBooking from '../pages/candidate/InterviewBooking';
+import CandidateAptitude from '../pages/candidate/CandidateAptitude';
 
 // Recruiter Pages
 import HRDashboard from '../pages/recruiter/HRDashboard';
@@ -74,6 +75,18 @@ const AppRoutes = () => {
             <CandidateProfileWizard />
           </ProtectedRoute>
         }
+      />
+      <Route
+        path="/candidate/aptitude"
+        element={
+          <ProtectedRoute allowedRoles={[ROLES.CANDIDATE]}>
+            <CandidateAptitude />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/aptitude"
+        element={<Navigate to="/candidate/aptitude" replace />}
       />
       <Route
         path="/candidate/status"

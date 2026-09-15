@@ -1,9 +1,10 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import DashboardLayout from '../../components/layout/DashboardLayout';
 import PageHeader from '../../components/layout/PageHeader';
 import CandidateProfile from '../../components/candidates/CandidateProfile';
 import InterviewQuestions from '../../components/interviews/InterviewQuestions';
+import LiveMeetingRoomModal from '../../components/interviews/LiveMeetingRoomModal';
 import Button from '../../components/common/Button';
 import Loader from '../../components/common/Loader';
 import { useInterviews } from '../../hooks/useInterviews';
@@ -14,6 +15,7 @@ const InterviewDetails = () => {
   const { id } = useParams();
   const { prompts, fetchPrompts, loading: promptsLoading } = useInterviews();
   const { currentCandidate, fetchCandidateStatus, loading: candLoading } = useCandidates();
+  const [isMeetingModalOpen, setIsMeetingModalOpen] = useState(false);
 
   useEffect(() => {
     fetchPrompts({ interview_id: id });
@@ -65,18 +67,17 @@ const InterviewDetails = () => {
             </div>
             <div>
               <h4 className="text-sm font-bold text-white">Live Virtual Interview Room</h4>
-              <p className="text-xs text-slate-300">https://fairhire.meet/room-301</p>
+              <p className="text-xs text-slate-300">Room ID: #{id || 'ROOM-301'}</p>
             </div>
           </div>
 
-          <a
-            href="https://fairhire.meet/room-301"
-            target="_blank"
-            rel="noreferrer"
-            className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white font-bold text-xs rounded-xl transition-colors self-start sm:self-auto"
+          <button
+            type="button"
+            onClick={() => setIsMeetingModalOpen(true)}
+            className="px-4 py-2 bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-slate-950 font-black text-xs rounded-xl transition-all shadow-md self-start sm:self-auto cursor-pointer"
           >
-            Launch Meeting Room
-          </a>
+            Launch Live Meeting Room
+          </button>
         </div>
 
         {/* Candidate Profile Details */}
@@ -91,6 +92,15 @@ const InterviewDetails = () => {
           <InterviewQuestions prompts={prompts} />
         )}
       </div>
+
+      <LiveMeetingRoomModal
+        isOpen={isMeetingModalOpen}
+        onClose={() => setIsMeetingModalOpen(false)}
+        roomId={id || 'ROOM-301'}
+        roleTitle={candidate.jobTitle}
+        candidateName={candidate.name}
+        interviewerName="Elena Rostova (Lead Technical Evaluator)"
+      />
     </DashboardLayout>
   );
 };

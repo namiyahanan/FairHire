@@ -5,7 +5,7 @@ import { ROLES } from '../../utils/constants';
 import { isInterviewBookingApproved } from '../../services/candidateApi';
 import {
   LayoutDashboard,
-  UserCheck,
+  Brain,
   Briefcase,
   Users,
   Calendar,
@@ -63,13 +63,7 @@ const Sidebar = ({
       case ROLES.CANDIDATE:
         return [
           { to: '/candidate', label: 'My Dashboard', icon: LayoutDashboard },
-          {
-            to: '/candidate/profile',
-            label: 'My Profile',
-            icon: UserCheck,
-            badge: null,
-            badgeColor: null
-          },
+          { to: '/candidate/aptitude', label: 'Aptitude Round', icon: Brain },
           { to: '/candidate/status', label: 'Application Status', icon: Award },
           {
             to: '/candidate/interview',

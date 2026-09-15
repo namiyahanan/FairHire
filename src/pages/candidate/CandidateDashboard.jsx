@@ -875,7 +875,7 @@ const CandidateDashboard = () => {
                     <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
                       <span className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-700 bg-teal-50 px-2 py-1 rounded-lg border border-teal-200">
                         <BookOpen className="w-3 h-3 text-teal-600" />
-                        {(role.interviewRounds || role.courses || []).length} Stages & Prep
+                        {(role.recommendedCourses || role.courses || []).length || 3} Prep Modules
                       </span>
 
                       <div className="flex items-center gap-2">
@@ -887,7 +887,7 @@ const CandidateDashboard = () => {
                           }}
                           className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold text-slate-600 hover:text-navy-900 hover:bg-slate-100 transition-colors cursor-pointer"
                         >
-                          Prep Guide & Rounds
+                          Prep Guide & Details
                         </button>
 
                         {appliedJobs[role.id] ? (
@@ -1084,35 +1084,9 @@ const CandidateDashboard = () => {
                 </div>
               </div>
 
-              {/* Typical Interview Rounds */}
-              {(() => {
-                const roundsToDisplay = (selectedJob.interviewRounds && selectedJob.interviewRounds.length > 0)
-                  ? selectedJob.interviewRounds
-                  : getCompanyRounds();
-
-                return roundsToDisplay && roundsToDisplay.length > 0 ? (
-                  <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
-                      Typical Interview Rounds ({roundsToDisplay.length} Stages)
-                    </h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {roundsToDisplay.map((round, rIdx) => (
-                        <div key={round.round || rIdx} className="p-3.5 rounded-xl border border-slate-200 bg-white space-y-1">
-                          <span className="text-[10px] font-black uppercase text-teal-700 bg-teal-50 px-2 py-0.5 rounded font-mono">
-                            Round {round.round || rIdx + 1}
-                          </span>
-                          <h5 className="font-bold text-slate-900 text-xs mt-1">{round.name}</h5>
-                          <p className="text-[11px] text-slate-500 leading-snug">{round.description}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null;
-              })()}
-
               {/* Recommended Courses & Certifications */}
               <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb- 3">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
                   Recommended Courses & Certifications
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

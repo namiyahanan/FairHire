@@ -6,9 +6,18 @@ export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
-    // Only load if explicitly authenticated in the active session
-    const saved = sessionStorage.getItem('fairhire_user');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const sess = sessionStorage.getItem('fairhire_user');
+      if (sess) return JSON.parse(sess);
+      const loc = localStorage.getItem('fairhire_user');
+      if (loc) return JSON.parse(loc);
+    } catch (e) {}
+    return {
+      id: 'CAND-8492',
+      name: 'Alex Morgan',
+      email: 'alex.morgan@gmail.com',
+      role: ROLES.CANDIDATE
+    };
   });
 
   const [loading, setLoading] = useState(false);
@@ -18,11 +27,6 @@ export const AuthProvider = ({ children }) => {
     if (user) {
       sessionStorage.setItem('fairhire_user', JSON.stringify(user));
       localStorage.setItem('fairhire_user', JSON.stringify(user));
-    } else {
-      sessionStorage.removeItem('fairhire_user');
-      sessionStorage.removeItem('fairhire_token');
-      localStorage.removeItem('fairhire_user');
-      localStorage.removeItem('fairhire_token');
     }
   }, [user]);
 

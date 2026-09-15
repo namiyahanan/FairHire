@@ -29,15 +29,18 @@ import {
   UserCheck,
   AlertCircle,
   HelpCircle,
-  RefreshCw
+  RefreshCw,
+  Play
 } from 'lucide-react';
+import LiveMeetingRoomModal from '../../components/interviews/LiveMeetingRoomModal';
 
 const InterviewBooking = () => {
   const { currentCandidate, fetchCandidateStatus, confirmInterviewSlot, loading } = useCandidates();
-  const { switchRole } = useAuth();
+  const { switchRole, user } = useAuth();
 
   const [toastMessage, setToastMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [isMeetingOpen, setIsMeetingOpen] = useState(false);
 
   // Approval state from centralized store
   const [approvalState, setApprovalState] = useState(() => isInterviewBookingApproved('CAND-8492'));
@@ -327,19 +330,20 @@ const InterviewBooking = () => {
                   </p>
                 </div>
 
-                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-700 flex flex-col sm:flex-row items-center gap-3 mt-2">
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-700 flex flex-col sm:flex-row items-center justify-between gap-3 mt-2 w-full max-w-lg">
                   <div className="flex items-center gap-2 font-bold text-navy-900">
                     <Video className="w-4 h-4 text-teal-600 shrink-0" />
-                    <span>Video Conference Room:</span>
+                    <span>Video Conference Room: <span className="text-teal-700 font-mono">#ROOM-301</span></span>
                   </div>
-                  <a
-                    href="https://fairhire.meet/room-301"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-teal-600 font-bold underline hover:text-teal-700"
+                  
+                  <button
+                    type="button"
+                    onClick={() => setIsMeetingOpen(true)}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-teal-900/20 cursor-pointer"
                   >
-                    https://fairhire.meet/room-301
-                  </a>
+                    <Video className="w-3.5 h-3.5" />
+                    <span>Launch Live Video Room</span>
+                  </button>
                 </div>
 
                 <div className="pt-4 flex items-center gap-3">
@@ -371,6 +375,14 @@ const InterviewBooking = () => {
       </div>
 
       <Toast message={toastMessage} onClose={() => setToastMessage('')} />
+
+      <LiveMeetingRoomModal
+        isOpen={isMeetingOpen}
+        onClose={() => setIsMeetingOpen(false)}
+        roomId="ROOM-301"
+        candidateName={user?.name || 'Alex Morgan'}
+        interviewerName="Elena Rostova (Lead Technical Evaluator)"
+      />
     </DashboardLayout>
   );
 };
