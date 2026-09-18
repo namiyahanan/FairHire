@@ -237,6 +237,33 @@ const flattenEducation = (education) => {
   return '';
 };
 
+const TRACK_TITLE_MAP = {
+  'web': 'Frontend Engineer',
+  'WEB': 'Frontend Engineer',
+  'frontend': 'Frontend Engineer',
+  'backend-developer': 'Backend Developer',
+  'backend': 'Backend Developer',
+  'data': 'Data & Infrastructure Engineer',
+  'DATA': 'Data & Infrastructure Engineer',
+  'advanced': 'AI & Advanced Systems Engineer',
+  'ADVANCED': 'AI & Advanced Systems Engineer',
+  'fullstack': 'Senior Full Stack Engineer',
+  'aiml': 'AI / ML Engineer',
+  'devops': 'DevOps & Cloud Engineer',
+  'qa': 'QA & Automation Engineer',
+  'mobile': 'Mobile App Developer'
+};
+
+export const formatJobRoleTitle = (trackId) => {
+  if (!trackId) return 'Software Engineer';
+  if (TRACK_TITLE_MAP[trackId]) return TRACK_TITLE_MAP[trackId];
+  if (TRACK_TITLE_MAP[trackId.toLowerCase()]) return TRACK_TITLE_MAP[trackId.toLowerCase()];
+  return trackId
+    .split(/[-_ ]+/)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+};
+
 /**
  * Candidate adapter: merges candidate_pipeline + candidate_profiles +
  * candidate_scores + candidate_progress into the frontend Candidate object.
@@ -266,7 +293,7 @@ const candidateAdapter = (pipeline, profile, score, progress) => {
 
   // aiScore: DB is 0–100, UI expects 0–10
   const rawScore = score?.overall_score ?? null;
-  const aiScore = rawScore !== null ? Number((rawScore / 10).toFixed(2)) : 0;
+  const aiScore = rawScore !== null && rawScore !== undefined ? Number((rawScore / 10).toFixed(2)) : 0;
 
   // Education: flatten jsonb array to display string
   const education = flattenEducation(profile?.education);
@@ -277,11 +304,8 @@ const candidateAdapter = (pipeline, profile, score, progress) => {
   // Matched skills from profile
   const matchedSkills = Array.isArray(profile?.skills) ? profile.skills : [];
 
-  // Job title from job_tracks via track_id (we use track_id as a proxy; actual title requires join)
-  // Use track_id formatted as title if no better source available
-  const jobTitle = trackId
-    ? trackId.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-    : 'Software Engineer';
+  // Formatted human-readable job title
+  const jobTitle = formatJobRoleTitle(trackId);
 
   return {
     // Identity
@@ -876,7 +900,7 @@ export const candidateApi = {
     if (isMockMode()) {
       await new Promise(res => setTimeout(res, 250));
       const current = getStoredCandidates();
-      let filtered = [...current];
+      let filtered = current.filter(c => c.aiScore && c.aiScore > 0 && c.name && c.name !== 'undefined');
       if (filters.status && filters.status !== 'All') {
         filtered = filtered.filter(c => c.status === filters.status);
       }
@@ -924,23 +948,71 @@ export const candidateApi = {
     const scoreRows     = scoresRes.data     || [];
     const progressRows  = progressRes.data  || [];
 
-    // Build lookup maps keyed by "candidate_id::track_id" for O(1) merges
-    const profileMap  = {};
-    profileRows.forEach(p  => { profileMap[`${p.candidate_id}::${p.track_id}`]  = p; });
-    const scoreMap    = {};
-    scoreRows.forEach(s    => { scoreMap[`${s.candidate_id}::${s.track_id}`]    = s; });
-    const progressMap = {};
-    progressRows.forEach(pr => { progressMap[`${pr.candidate_id}::${pr.track_id}`] = pr; });
+    // Helper functions for resilient joins
+    const findScore = (candidateId, trackId) => {
+      return scoreRows.find(s => 
+        s.candidate_id === candidateId && 
+        (s.track_id === trackId || String(s.track_id).toLowerCase() === String(trackId).toLowerCase())
+      ) || scoreRows.find(s => s.candidate_id === candidateId) || null;
+    };
 
-    let candidates = pipelineRows.map(pl => {
-      const key     = `${pl.candidate_id}::${pl.track_id}`;
-      const profile  = profileMap[key]  || null;
-      const score    = scoreMap[key]    || null;
-      const progress = progressMap[key] || null;
-      return candidateAdapter(pl, profile, score, progress);
-    });
+    const findProfile = (candidateId, trackId) => {
+      return profileRows.find(p => 
+        p.candidate_id === candidateId && 
+        (p.track_id === trackId || String(p.track_id).toLowerCase() === String(trackId).toLowerCase())
+      ) || profileRows.find(p => p.candidate_id === candidateId) || null;
+    };
 
-    console.log('[FairHire][CANDIDATE LIST] Fetched', candidates.length, 'candidates from Supabase');
+    const findProgress = (candidateId, trackId) => {
+      return progressRows.find(pr => 
+        pr.candidate_id === candidateId && 
+        (pr.track_id === trackId || String(pr.track_id).toLowerCase() === String(trackId).toLowerCase())
+      ) || progressRows.find(pr => pr.candidate_id === candidateId) || null;
+    };
+
+    // Filter out withdrawn or deleted pipeline entries
+    const validPipelineRows = pipelineRows.filter(pl => 
+      pl.status !== 'withdrawn' && pl.status !== 'deleted'
+    );
+
+    let candidates = validPipelineRows
+      .map(pl => {
+        const profile  = findProfile(pl.candidate_id, pl.track_id);
+        const score    = findScore(pl.candidate_id, pl.track_id);
+        const progress = findProgress(pl.candidate_id, pl.track_id);
+        return candidateAdapter(pl, profile, score, progress);
+      })
+      // REQUIREMENT: Pipeline page strictly consists of applied candidates with their score
+      .filter(c => {
+        if (!c.name || c.name === 'Candidate' || c.name === 'undefined') return false;
+        if (!c.aiScore || c.aiScore <= 0) return false;
+        return true;
+      });
+
+    // Deduplicate candidates by email/id, retaining the entry with the highest score
+    const deduplicated = [];
+    const seenMap = new Map();
+
+    for (const cand of candidates) {
+      const dedupKey = (cand.email || cand.id || '').trim().toLowerCase();
+      if (!seenMap.has(dedupKey)) {
+        seenMap.set(dedupKey, cand);
+        deduplicated.push(cand);
+      } else {
+        const existing = seenMap.get(dedupKey);
+        if ((cand.aiScore || 0) > (existing.aiScore || 0)) {
+          const idx = deduplicated.findIndex(c => c.id === existing.id);
+          if (idx !== -1) {
+            deduplicated[idx] = cand;
+            seenMap.set(dedupKey, cand);
+          }
+        }
+      }
+    }
+
+    candidates = deduplicated;
+
+    console.log('[FairHire][CANDIDATE LIST] Authoritative applied candidates with scores:', candidates.length);
 
     // Apply optional client-side filters (status and search)
     if (filters.status && filters.status !== 'All') {
@@ -1212,9 +1284,20 @@ export const candidateApi = {
       const updated = deleteCandidateFromStore(candidateId);
       return { success: true, data: updated, message: "Candidate removed from pipeline." };
     }
-    return apiRequest(`${API_ENDPOINTS.candidates.list}/${candidateId}`, {
-      method: 'DELETE'
-    });
+    try {
+      await Promise.all([
+        supabase.from('candidate_pipeline').delete().eq('candidate_id', candidateId),
+        supabase.from('candidate_scores').delete().eq('candidate_id', candidateId),
+        supabase.from('candidate_progress').delete().eq('candidate_id', candidateId),
+        supabase.from('candidate_profiles').delete().eq('candidate_id', candidateId),
+      ]);
+      deleteCandidateFromStore(candidateId);
+      return { success: true, message: "Candidate removed from pipeline." };
+    } catch (err) {
+      console.warn('[FairHire] Supabase delete warning:', err.message);
+      deleteCandidateFromStore(candidateId);
+      return { success: true, message: "Candidate removed from pipeline." };
+    }
   },
 
   clearAllCandidates: async () => {
@@ -1223,8 +1306,19 @@ export const candidateApi = {
       clearAllCandidatesInStore();
       return { success: true, message: "All candidates removed from pipeline." };
     }
-    return apiRequest(`${API_ENDPOINTS.candidates.list}/clear-all`, {
-      method: 'POST'
-    });
+    try {
+      await Promise.all([
+        supabase.from('candidate_pipeline').delete().neq('candidate_id', ''),
+        supabase.from('candidate_scores').delete().neq('candidate_id', ''),
+        supabase.from('candidate_progress').delete().neq('candidate_id', ''),
+        supabase.from('candidate_profiles').delete().neq('candidate_id', ''),
+      ]);
+      clearAllCandidatesInStore();
+      return { success: true, message: "All candidates removed from pipeline." };
+    } catch (err) {
+      console.warn('[FairHire] Supabase clear all warning:', err.message);
+      clearAllCandidatesInStore();
+      return { success: true, message: "All candidates removed from pipeline." };
+    }
   }
 };

@@ -34,6 +34,17 @@ const STAGE_COLORS = {
   Rejected: 'bg-rose-50 text-rose-800 border-rose-300'
 };
 
+const STAGE_SUBTITLES = {
+  Applied: 'Application Verified',
+  Screened: 'AI Screening Passed',
+  Shortlisted: 'Interview Eligible',
+  'Interview Scheduled': 'Live Round Booked',
+  Interviewed: 'Evaluation Completed',
+  Offered: 'Offer Extended',
+  Hired: 'Onboarding Pending',
+  Rejected: 'Evaluation Closed'
+};
+
 const Candidates = () => {
   const { candidates, fetchCandidates, deleteCandidate, clearAllCandidates, loading } = useCandidates();
 
@@ -273,7 +284,11 @@ const Candidates = () => {
                               {cand.jobTitle || 'Software Engineer'}
                             </span>
                             <span className="text-[10px] text-slate-400">
-                              {cand.experienceYears ? `${cand.experienceYears} yrs experience` : 'Verified Experience'}
+                              {cand.experienceYears > 0 
+                                ? cand.experienceYears < 1
+                                  ? '< 1 yr experience'
+                                  : `${cand.experienceYears} yrs experience`
+                                : 'Verified Experience'}
                             </span>
                           </div>
                         </td>
@@ -306,7 +321,7 @@ const Candidates = () => {
                               <span>{cand.status}</span>
                             </span>
                             <span className="text-[9px] text-slate-400 font-medium">
-                              Round-automated
+                              {STAGE_SUBTITLES[cand.status] || 'Automated Stage'}
                             </span>
                           </div>
                         </td>
