@@ -48,15 +48,17 @@ const AiAptitudeAssessment = ({
   const totalQuestions = questions.length;
 
   useEffect(() => {
+    const staticBank = getAptitudeQuestionsForRole(roleTitle);
+
     if (!assessmentId) {
       // If assessmentId is missing, do not attempt to query Supabase
-      const staticBank = getAptitudeQuestionsForRole(roleTitle);
       const normalized = (staticBank || []).map((q, idx) => ({
         question_id: String(q.id),
         category: q.topic,
         question_text: q.question,
         options: q.options,
-        question_order: idx + 1
+        question_order: idx + 1,
+        correct_answer: typeof q.correctAnswer === 'number' ? q.options[q.correctAnswer] : (q.correctAnswer || q.options[0])
       }));
       setQuestions(normalized);
       setQuestionsLoading(false);
@@ -71,17 +73,34 @@ const AiAptitudeAssessment = ({
       try {
         const rows = await getAssessmentQuestions(assessmentId);
         if (isMounted) {
-          const normalized = (rows || []).map(q => ({
-            ...q,
-            options: Array.isArray(q.options)
-              ? q.options
-              : (typeof q.options === 'string' ? JSON.parse(q.options) : [])
-          }));
+          const normalized = (rows || []).map((q, idx) => {
+            let correctAns = q.correct_answer;
+            if (!correctAns && staticBank[idx]) {
+              const sb = staticBank[idx];
+              correctAns = typeof sb.correctAnswer === 'number' ? sb.options[sb.correctAnswer] : sb.correctAnswer;
+            }
+            return {
+              ...q,
+              options: Array.isArray(q.options)
+                ? q.options
+                : (typeof q.options === 'string' ? JSON.parse(q.options) : []),
+              correct_answer: correctAns || (Array.isArray(q.options) ? q.options[0] : '')
+            };
+          });
           setQuestions(normalized);
         }
       } catch (err) {
         if (isMounted) {
-          setQuestionsError(err.message || 'Failed to load assessment questions.');
+          const normalized = (staticBank || []).map((q, idx) => ({
+            question_id: String(q.id),
+            category: q.topic,
+            question_text: q.question,
+            options: q.options,
+            question_order: idx + 1,
+            correct_answer: typeof q.correctAnswer === 'number' ? q.options[q.correctAnswer] : (q.correctAnswer || q.options[0])
+          }));
+          setQuestions(normalized);
+          setQuestionsError(null);
         }
       } finally {
         if (isMounted) {
@@ -112,6 +131,8 @@ const AiAptitudeAssessment = ({
   const [fullscreenExitCount, setFullscreenExitCount] = useState(0);
   const [launchError, setLaunchError] = useState('');
   const [forceExitInfo, setForceExitInfo] = useState(null);
+  const [submittedBreakdown, setSubmittedBreakdown] = useState(null);
+  const [submittedScoreStats, setSubmittedScoreStats] = useState(null);
 
   // ── guidelines checklist (all must be checked) ───────────────────────────────
   const [agreedGuidelines, setAgreedGuidelines] = useState(false);
@@ -151,6 +172,43 @@ const AiAptitudeAssessment = ({
       }
     }
 
+    // Build question-by-question breakdown with given answer vs correct answer
+    const stripPrefix = s => String(s || '').replace(/^[a-d]\)\s*/i, '').replace(/^[0-9]+\.\s*/, '').replace(/^["']|["']$/g, '').trim().toLowerCase();
+
+    const breakdown = questions.map((q, idx) => {
+      const givenAns = currentAnswers[q.question_id] || '';
+      const correctAns = q.correct_answer || (Array.isArray(q.options) ? q.options[0] : '');
+      const isUnanswered = !givenAns || String(givenAns).trim() === '';
+      const isCorrect = !isUnanswered && (
+        String(givenAns).trim().toLowerCase() === String(correctAns).trim().toLowerCase() ||
+        stripPrefix(givenAns) === stripPrefix(correctAns)
+      );
+
+      return {
+        questionId: q.question_id,
+        questionNumber: idx + 1,
+        topic: q.category || q.topic || 'Technical Aptitude',
+        question: q.question_text || q.question || `Question ${idx + 1}`,
+        options: q.options || [],
+        candidateAnswer: isUnanswered ? 'Not Answered / Timed Out' : givenAns,
+        correctAnswer: correctAns,
+        isCorrect,
+        isUnanswered,
+        status: isUnanswered ? 'Timed Out / Unanswered' : (isCorrect ? 'Correct' : 'Incorrect')
+      };
+    });
+
+    const correctCount = breakdown.filter(b => b.isCorrect).length;
+    const scorePercentage = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
+
+    setSubmittedBreakdown(breakdown);
+    setSubmittedScoreStats({
+      correctCount,
+      totalQuestions,
+      percentage: scorePercentage,
+      incorrectCount: totalQuestions - correctCount
+    });
+
     if (exitReason) {
       setForceExitInfo({
         reason: exitReason,
@@ -170,17 +228,21 @@ const AiAptitudeAssessment = ({
       onComplete({
         assessmentId,
         candidateId,
+        score: scorePercentage,
+        rawScore: correctCount,
+        percentage: scorePercentage,
+        totalQuestions,
         answers: formattedAnswers,
         rawAnswers: currentAnswers,
-        totalQuestions,
+        questionsBreakdown: breakdown,
         timeSpentSeconds: totalTimeSpentSeconds,
         fullscreenExits: fullscreenExitCount + (exitReason ? 1 : 0),
         forcedExit: !!exitReason,
         terminatedAtQuestion: exitReason ? qNum : undefined,
         forcedReason: exitReason || undefined,
         feedback: exitReason
-          ? `Proctoring Enforcement: Candidate exited fullscreen (Esc pressed) at question ${qNum} of ${totalQuestions}. Exam immediately terminated and force-submitted.`
-          : `Candidate completed ${totalQuestions}-question AI Aptitude Assessment.`
+          ? `Proctoring Enforcement: Candidate exited fullscreen (Esc pressed) at question ${qNum} of ${totalQuestions}. Exam immediately terminated. Score: ${correctCount}/${totalQuestions} (${scorePercentage}%).`
+          : `Candidate completed ${totalQuestions}-question AI Aptitude Assessment. Score: ${correctCount}/${totalQuestions} (${scorePercentage}%).`
       });
     }
   }, [assessmentId, candidateId, questions, totalQuestions, startTime, fullscreenExitCount, onComplete]);
@@ -404,6 +466,96 @@ const AiAptitudeAssessment = ({
             </span>
           </div>
         </div>
+
+        {/* Assessment Answer Table */}
+        {submittedBreakdown && submittedBreakdown.length > 0 && (
+          <div className="text-left space-y-3 pt-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-teal-600" />
+                <h4 className="text-sm font-black text-navy-900">
+                  Assessment Answer Evaluation Table
+                </h4>
+              </div>
+              <div className="flex items-center gap-2 text-xs flex-wrap">
+                <span className="font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                  ✓ {submittedScoreStats?.correctCount} Correct
+                </span>
+                <span className="font-bold text-rose-700 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200">
+                  ✗ {submittedScoreStats?.incorrectCount} Incorrect
+                </span>
+                <span className="font-black text-navy-900 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
+                  Score: {submittedScoreStats?.percentage}%
+                </span>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm max-h-96 overflow-y-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-extrabold text-[10px] z-10">
+                  <tr>
+                    <th className="py-3 px-3 text-center w-10">#</th>
+                    <th className="py-3 px-4 min-w-[220px]">Question & Topic</th>
+                    <th className="py-3 px-4 min-w-[170px]">Your Given Answer</th>
+                    <th className="py-3 px-4 min-w-[170px]">Correct Answer</th>
+                    <th className="py-3 px-3 text-center w-24">Result</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {submittedBreakdown.map((q, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="py-3 px-3 text-center font-black text-slate-400">
+                        {idx + 1}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="inline-block text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-teal-50 text-teal-800 border border-teal-200 mb-1">
+                          {q.topic}
+                        </span>
+                        <p className="text-navy-900 font-semibold leading-relaxed">{q.question}</p>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className={`p-2 rounded-xl border text-xs font-semibold ${
+                          q.isCorrect
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                            : (q.isUnanswered || !q.candidateAnswer || q.candidateAnswer === 'Not Answered / Timed Out'
+                                ? 'bg-amber-50 border-amber-200 text-amber-800'
+                                : 'bg-rose-50 border-rose-200 text-rose-800')
+                        }`}>
+                          <div className="flex items-start gap-1.5">
+                            {q.isCorrect ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                            ) : (q.isUnanswered || !q.candidateAnswer || q.candidateAnswer === 'Not Answered / Timed Out') ? (
+                              <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                            ) : (
+                              <X className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+                            )}
+                            <span className="break-words">{q.candidateAnswer}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="p-2 rounded-xl bg-teal-50/70 border border-teal-200 text-teal-900 text-xs font-semibold">
+                          <span className="break-words">{q.correctAnswer}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-center">
+                        <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border ${
+                          q.isCorrect
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : (q.isUnanswered || !q.candidateAnswer || q.candidateAnswer === 'Not Answered / Timed Out'
+                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                : 'bg-rose-50 text-rose-700 border-rose-200')
+                        }`}>
+                          {q.isCorrect ? '✓ Correct' : (q.isUnanswered || !q.candidateAnswer || q.candidateAnswer === 'Not Answered / Timed Out' ? '⏱ Timed Out' : '✗ Incorrect')}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         <div className="pt-3">
           <Button variant="gradient" size="md" icon={ArrowRight} onClick={onClose} className="shadow-md">

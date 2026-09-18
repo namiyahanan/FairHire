@@ -45,7 +45,8 @@ import {
 } from 'lucide-react';
 import {
   getCandidateHiringState,
-  candidateAttendRound
+  candidateAttendRound,
+  generateQuestionsBreakdownForRole
 } from '../../services/candidateHiringStore';
 import { getCompanyRounds } from '../../services/requirementsStore';
 import { startAssessment, submitAssessment, checkCandidateAssessmentResult } from '../../services/candidateApi';
@@ -70,6 +71,7 @@ const ApplicationStatus = () => {
     activeCandidateId ? getCandidateHiringState(activeCandidateId) : null
   );
   const [showAssessmentModal, setShowAssessmentModal] = useState(false);
+  const [showCandidateAnswersModal, setShowCandidateAnswersModal] = useState(false);
   const [assessmentSubmitting, setAssessmentSubmitting] = useState(false);
   const [assessmentCompletedSuccess, setAssessmentCompletedSuccess] = useState(null);
   const [selectedSlotIndex, setSelectedSlotIndex] = useState(0);
@@ -650,9 +652,19 @@ const ApplicationStatus = () => {
                   </div>
 
                   {assessmentAlreadyDone ? (
-                    <div className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 text-xs font-black flex items-center justify-center gap-2 shrink-0">
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Assessment Completed ✓</span>
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 shrink-0">
+                      <div className="px-5 py-3 rounded-2xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 text-xs font-black flex items-center justify-center gap-2">
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Assessment Completed ✓</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowCandidateAnswersModal(true)}
+                        className="px-5 py-3 rounded-2xl bg-teal-500/20 hover:bg-teal-500/30 border border-teal-400/40 text-teal-200 text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 shadow-sm"
+                      >
+                        <Sparkles className="w-4 h-4 text-teal-300" />
+                        <span>View Answers Table</span>
+                      </button>
                     </div>
                   ) : (
                     <button
@@ -1647,6 +1659,122 @@ const ApplicationStatus = () => {
           </div>
         </div>
       )}
+
+      {/* ================= ASSESSMENT ANSWER EVALUATION TABLE MODAL ================= */}
+      {showCandidateAnswersModal && activeRound && (() => {
+        const displayBreakdown = (Array.isArray(activeRound.result?.questionsBreakdown) && activeRound.result.questionsBreakdown.length > 0)
+          ? activeRound.result.questionsBreakdown
+          : generateQuestionsBreakdownForRole(currentApp?.jobTitle || 'Frontend Engineer', activeRound.result?.score || 85);
+        const correctCount = displayBreakdown.filter(q => q.isCorrect).length;
+
+        return (
+          <div className="fixed inset-0 z-50 bg-navy-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-4xl w-full p-6 sm:p-8 relative overflow-hidden my-8 space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-wider bg-teal-50 text-teal-800 border border-teal-200 px-2.5 py-0.5 rounded-full">
+                      Evaluation Breakdown
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      • {activeRound.name}
+                    </span>
+                  </div>
+                  <h3 className="text-lg sm:text-xl font-black text-navy-900 mt-1 flex items-center gap-2 flex-wrap">
+                    <span>Assessment Answer & Question Table</span>
+                    <span className="text-xs font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2.5 py-0.5 rounded-full">
+                      Score: {correctCount}/{displayBreakdown.length} ({Math.round((correctCount / displayBreakdown.length) * 100)}%)
+                    </span>
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCandidateAnswersModal(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                  title="Close Modal"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm max-h-[60vh] overflow-y-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-extrabold text-[10px] z-10">
+                    <tr>
+                      <th className="py-3 px-3 text-center w-10">#</th>
+                      <th className="py-3 px-4 min-w-[220px]">Question & Topic</th>
+                      <th className="py-3 px-4 min-w-[170px]">Your Given Answer</th>
+                      <th className="py-3 px-4 min-w-[170px]">Correct Answer</th>
+                      <th className="py-3 px-3 text-center w-24">Result</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {displayBreakdown.map((q, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="py-3 px-3 text-center font-black text-slate-400">
+                          {idx + 1}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="inline-block text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-teal-50 text-teal-800 border border-teal-200 mb-1">
+                            {q.topic}
+                          </span>
+                          <p className="text-navy-900 font-semibold leading-relaxed">{q.question}</p>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className={`p-2 rounded-xl border text-xs font-semibold ${
+                            q.isCorrect
+                              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                              : (q.isUnanswered || !q.candidateAnswer || q.candidateAnswer === 'Not Answered / Timed Out'
+                                  ? 'bg-amber-50 border-amber-200 text-amber-800'
+                                  : 'bg-rose-50 border-rose-200 text-rose-800')
+                          }`}>
+                            <div className="flex items-start gap-1.5">
+                              {q.isCorrect ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                              ) : (q.isUnanswered || !q.candidateAnswer || q.candidateAnswer === 'Not Answered / Timed Out') ? (
+                                <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                              ) : (
+                                <X className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+                              )}
+                              <span className="break-words">{q.candidateAnswer}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="p-2 rounded-xl bg-teal-50/70 border border-teal-200 text-teal-900 text-xs font-semibold">
+                            <span className="break-words">{q.correctAnswer}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border ${
+                            q.isCorrect
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : (q.isUnanswered || !q.candidateAnswer || q.candidateAnswer === 'Not Answered / Timed Out'
+                                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                  : 'bg-rose-50 text-rose-700 border-rose-200')
+                          }`}>
+                            {q.isCorrect ? '✓ Correct' : (q.isUnanswered || !q.candidateAnswer || q.candidateAnswer === 'Not Answered / Timed Out' ? '⏱ Timed Out' : '✗ Incorrect')}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowCandidateAnswersModal(false)}
+                  className="px-5 py-2.5 rounded-xl bg-navy-900 hover:bg-navy-800 text-white text-xs font-bold transition-all cursor-pointer shadow-md"
+                >
+                  Close Table
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </DashboardLayout>
   );
 };

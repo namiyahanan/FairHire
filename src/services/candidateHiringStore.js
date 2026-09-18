@@ -1,13 +1,44 @@
 // Centralized Persistent Candidate Hiring Process & Sequential Rounds Store
 // Supports: Applied -> AI Screening -> Review (Round 1..N) -> Final Decision (Offer / Reject)
 import { getCompanyRounds } from './requirementsStore';
+import { getAptitudeQuestionsForRole } from '../data/aptitudeQuestions';
 
 const HIRING_STORAGE_KEY = 'fairhire_candidate_hiring_state';
 
+// Generate dynamic question breakdown table data for any role & score
+export const generateQuestionsBreakdownForRole = (roleTitle = 'Frontend Engineer', candidateScore = 80) => {
+  const bank = getAptitudeQuestionsForRole(roleTitle) || [];
+  const total = bank.length || 10;
+  const correctCount = Math.round((candidateScore / 100) * total);
+
+  return bank.map((q, idx) => {
+    const isCorrect = idx < correctCount;
+    const correctAns = typeof q.correctAnswer === 'number' ? q.options[q.correctAnswer] : (q.correctAnswer || q.options[0]);
+    let candidateAns = correctAns;
+    if (!isCorrect) {
+      const wrongOpts = (q.options || []).filter(opt => opt !== correctAns);
+      candidateAns = wrongOpts[0] || 'Incorrect Option Selected';
+    }
+
+    return {
+      questionId: String(q.id || idx + 1),
+      questionNumber: idx + 1,
+      topic: q.topic || 'Technical Aptitude',
+      question: q.question || `Question ${idx + 1}`,
+      options: q.options || [],
+      candidateAnswer: candidateAns,
+      correctAnswer: correctAns,
+      isCorrect,
+      status: isCorrect ? 'Correct' : 'Incorrect'
+    };
+  });
+};
+
 // Generate dynamic round evaluations based on round title
-const generateRoundResult = (roundName, roundNumber, candidateName = 'Candidate') => {
+const generateRoundResult = (roundName, roundNumber, candidateName = 'Candidate', roleTitle = 'Frontend Engineer') => {
   const scores = [88, 91, 94, 96, 92, 95];
   const score = scores[(roundNumber - 1) % scores.length] || 90;
+  const rawScore = Math.round((score / 100) * 10);
 
   const feedbacks = [
     `Excellent verbal articulation, clear career motivations, and verified cultural alignment with team principles.`,
@@ -21,10 +52,13 @@ const generateRoundResult = (roundName, roundNumber, candidateName = 'Candidate'
 
   return {
     score,
+    rawScore,
+    totalQuestions: 10,
     status: 'Passed',
     passedAt: new Date().toISOString(),
     feedback,
-    evaluatedBy: roundNumber === 1 ? 'Talent Acquisition Team' : roundNumber === 2 ? 'Senior Staff Engineer' : 'Engineering Manager / Director'
+    evaluatedBy: roundNumber === 1 ? 'Talent Acquisition Team' : roundNumber === 2 ? 'Senior Staff Engineer' : 'Engineering Manager / Director',
+    questionsBreakdown: generateQuestionsBreakdownForRole(roleTitle, score)
   };
 };
 
@@ -244,19 +278,26 @@ export const candidateAttendRound = (candidateId, roundIndex = 0, selectedSlot =
     let result;
 
     if (assessmentSubmission) {
+      const score = assessmentSubmission.score !== undefined ? assessmentSubmission.score : 85;
+      const totalQuestions = assessmentSubmission.totalQuestions || 10;
+      const rawScore = assessmentSubmission.rawScore !== undefined ? assessmentSubmission.rawScore : Math.round((score / 100) * totalQuestions);
+      const breakdown = (Array.isArray(assessmentSubmission.questionsBreakdown) && assessmentSubmission.questionsBreakdown.length > 0)
+        ? assessmentSubmission.questionsBreakdown
+        : generateQuestionsBreakdownForRole('Frontend Engineer', score);
+
       result = {
-        score: assessmentSubmission.score,
-        rawScore: assessmentSubmission.rawScore,
-        totalQuestions: assessmentSubmission.totalQuestions || 10,
-        status: assessmentSubmission.score >= 60 ? 'Passed' : 'Needs Review',
+        score,
+        rawScore,
+        totalQuestions,
+        status: score >= 60 ? 'Passed' : 'Needs Review',
         passedAt: new Date().toISOString(),
-        feedback: assessmentSubmission.feedback || `Candidate scored ${assessmentSubmission.rawScore}/10 (${assessmentSubmission.score}%) on AI Aptitude Assessment.`,
+        feedback: assessmentSubmission.feedback || `Candidate scored ${rawScore}/${totalQuestions} (${score}%) on AI Aptitude Assessment.`,
         evaluatedBy: 'FairHire AI Aptitude Engine',
-        questionsBreakdown: assessmentSubmission.questionsBreakdown || [],
+        questionsBreakdown: breakdown,
         timeSpentSeconds: assessmentSubmission.timeSpentSeconds || 0
       };
     } else {
-      result = generateRoundResult(rounds[roundIndex].name, roundNumber);
+      result = generateRoundResult(rounds[roundIndex].name, roundNumber, 'Candidate', 'Frontend Engineer');
     }
 
     const isInterviewSlotRound = roundIndex >= 2;

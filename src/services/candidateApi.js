@@ -620,7 +620,7 @@ export const getAssessmentQuestions = async (assessmentId) => {
 
   const { data, error } = await supabase
     .from('assessment_questions')
-    .select('question_id, category, question_text, options, question_order')
+    .select('question_id, category, question_text, options, question_order, correct_answer')
     .eq('assessment_id', assessmentId)
     .eq('is_valid', true)
     .order('question_order', { ascending: true });
