@@ -70,9 +70,53 @@ export const useCandidates = () => {
     try {
       const res = await candidateApi.updateCandidateStatus({ candidateId, status, note });
       if (res.success) {
-        setCandidates(prev => prev.map(c => c.id === candidateId ? { ...c, status } : c));
+        await fetchCandidates();
         if (currentCandidate && currentCandidate.id === candidateId) {
-          setCurrentCandidate(prev => ({ ...prev, status }));
+          await fetchCandidateStatus(candidateId);
+        }
+      } else {
+        setError(res.message);
+      }
+      return res;
+    } catch (err) {
+      setError(err.message);
+      return { success: false, message: err.message };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const shortlistCandidate = async (candidateId) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await candidateApi.shortlistCandidate(candidateId);
+      if (res.success) {
+        await fetchCandidates();
+        if (currentCandidate && currentCandidate.id === candidateId) {
+          await fetchCandidateStatus(candidateId);
+        }
+      } else {
+        setError(res.message);
+      }
+      return res;
+    } catch (err) {
+      setError(err.message);
+      return { success: false, message: err.message };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const rejectCandidate = async (candidateId, notes = '') => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await candidateApi.rejectCandidate(candidateId, notes);
+      if (res.success) {
+        await fetchCandidates();
+        if (currentCandidate && currentCandidate.id === candidateId) {
+          await fetchCandidateStatus(candidateId);
         }
       } else {
         setError(res.message);
@@ -144,6 +188,8 @@ export const useCandidates = () => {
     fetchCandidateStatus,
     applyCandidate,
     updateCandidateStatus,
+    shortlistCandidate,
+    rejectCandidate,
     confirmInterviewSlot,
     deleteCandidate,
     clearAllCandidates

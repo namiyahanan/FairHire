@@ -15,6 +15,8 @@ import CandidateRegistration from '../pages/candidate/CandidateRegistration';
 import CandidateProfileWizard from '../pages/candidate/CandidateProfileWizard';
 import CandidateDashboard from '../pages/candidate/CandidateDashboard';
 import ApplicationStatus from '../pages/candidate/ApplicationStatus';
+import CandidateAssessmentPage from '../pages/candidate/CandidateAssessmentPage';
+import AssessmentDebug from '../pages/candidate/AssessmentDebug';
 import InterviewBooking from '../pages/candidate/InterviewBooking';
 
 // Recruiter Pages
@@ -36,7 +38,20 @@ import FairnessAnalytics from '../pages/admin/FairnessAnalytics';
 import AuditLogs from '../pages/admin/AuditLogs';
 
 const ProtectedRoute = ({ children, allowedRoles = [] }) => {
-  const { isAuthenticated, role } = useAuth();
+  const { isAuthenticated, role, authInitialized } = useAuth();
+
+  const isResolvingOAuth = typeof window !== 'undefined' && (
+    window.location.hash.includes('access_token') ||
+    window.location.search.includes('code=')
+  );
+
+  if (!authInitialized && isResolvingOAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-surface-bg">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-500" />
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
@@ -48,6 +63,7 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
 
   return children;
 };
+
 
 const AppRoutes = () => {
   return (
@@ -82,6 +98,23 @@ const AppRoutes = () => {
             <ApplicationStatus />
           </ProtectedRoute>
         }
+      />
+      <Route
+        path="/candidate/assessment"
+        element={
+          <ProtectedRoute allowedRoles={[ROLES.CANDIDATE]}>
+            <CandidateAssessmentPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/assessment"
+        element={<CandidateAssessmentPage />}
+      />
+      {/* TEMP: debug route — remove after diagnosis */}
+      <Route
+        path="/candidate/debug-assessment"
+        element={<AssessmentDebug />}
       />
       <Route
         path="/candidate/interview"

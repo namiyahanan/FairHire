@@ -6,11 +6,13 @@ import JobCard from '../../components/jobs/JobCard';
 import Button from '../../components/common/Button';
 import Loader from '../../components/common/Loader';
 import Toast from '../../components/common/Toast';
+import ErrorState from '../../components/common/ErrorState';
+import EmptyState from '../../components/common/EmptyState';
 import { useJobs } from '../../hooks/useJobs';
 import { Plus } from 'lucide-react';
 
 const Jobs = () => {
-  const { jobs, fetchJobs, deleteJob, loading } = useJobs();
+  const { jobs, fetchJobs, deleteJob, loading, error } = useJobs();
   const [toastMessage, setToastMessage] = useState('');
 
   useEffect(() => {
@@ -43,6 +45,19 @@ const Jobs = () => {
         <div className="h-96 flex items-center justify-center">
           <Loader size="lg" color="teal" />
         </div>
+      ) : error ? (
+        <ErrorState
+          title="Failed to Load Job Openings"
+          message={error}
+          onRetry={fetchJobs}
+        />
+      ) : jobs.length === 0 ? (
+        <EmptyState
+          title="No Active Job Positions"
+          description="There are currently no job positions returned from the database. If positions exist, verify that Supabase Row Level Security (RLS) policies allow SELECT queries for the anon role."
+          actionLabel="Post New Position"
+          onAction={() => window.location.href = '/recruiter/jobs/create'}
+        />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {jobs.map((job) => (

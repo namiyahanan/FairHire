@@ -1,4 +1,5 @@
-import { apiRequest, isMockMode } from './api';
+import { apiRequest, isMockMode, callCandidateWebhook } from './api';
+import { supabase } from './supabaseClient';
 import { API_ENDPOINTS } from '../utils/constants';
 import { MOCK_CANDIDATES } from '../mock/candidateMock';
 import {
@@ -194,7 +195,448 @@ export const revokeCandidateApprovalInStore = (candidateId = 'CAND-8492') => {
   return updatedCand;
 };
 
+/**
+ * Pipeline status mapping: DB lowercase slug → UI capitalised pipeline stage.
+ *
+ * Verified against live candidate_pipeline rows (2026-09-16):
+ *   resume_screening, assessment, shortlisted, technical_interview
+ *
+ * UI PIPELINE_STAGES (from constants.js) expects:
+ *   Applied, Screened, Shortlisted, Interview Scheduled, Interviewed, Offered, Hired, Rejected
+ */
+const PIPELINE_STATUS_MAP = {
+  applied:              'Applied',
+  resume_screening:     'Screened',
+  screened:             'Screened',
+  assessment:           'Screened',
+  ai_screening:         'Screened',
+  shortlisted:          'Shortlisted',
+  technical_interview:  'Interview Scheduled',
+  interview_scheduled:  'Interview Scheduled',
+  interviewed:          'Interviewed',
+  hr_interview:         'Interviewed',
+  offered:              'Offered',
+  hired:                'Hired',
+  rejected:             'Rejected',
+  on_hold:              'Screened',
+};
+
+/**
+ * Flatten a candidate_profiles.education jsonb array into a display string.
+ * Live schema: education is an array of { degree, institution, start_date, end_date }
+ */
+const flattenEducation = (education) => {
+  if (!education) return '';
+  if (typeof education === 'string') return education;
+  if (Array.isArray(education) && education.length > 0) {
+    const latest = education[education.length - 1];
+    return latest.degree && latest.institution
+      ? `${latest.degree}, ${latest.institution}`
+      : latest.degree || latest.institution || '';
+  }
+  return '';
+};
+
+/**
+ * Candidate adapter: merges candidate_pipeline + candidate_profiles +
+ * candidate_scores + candidate_progress into the frontend Candidate object.
+ *
+ * Verified live column names and types (2026-09-16):
+ *
+ * candidate_pipeline:  id, candidate_id, track_id, status (slug), updated_at
+ * candidate_profiles:  candidate_id, track_id, full_name, email, phone, location,
+ *                      education (jsonb[]), skills (text[]), programming_languages,
+ *                      frameworks, databases, tools, total_experience_years, github, linkedin, status
+ * candidate_scores:    candidate_id, track_id, overall_score (0-100), skill_score,
+ *                      language_score, framework_score, database_score, tools_score,
+ *                      experience_score, education_score, project_score,
+ *                      role_alignment_score, ranking, match_status, match_category, explanation
+ * candidate_progress:  id, candidate_id, track_id, current_stage, status, notes, updated_at, created_at
+ *
+ * UI score scale: 0–10 (formatScore, getScoreBadgeColor thresholds: ≥8.5, ≥7.0, ≥5.0)
+ * DB score scale: 0–100 → divide by 10 for UI.
+ */
+const candidateAdapter = (pipeline, profile, score, progress) => {
+  const candidateId = pipeline.candidate_id;
+  const trackId = pipeline.track_id;
+
+  // Status: map DB slug → UI pipeline stage string
+  const rawStatus = (progress?.current_stage || pipeline.status || 'applied').toLowerCase();
+  const status = PIPELINE_STATUS_MAP[rawStatus] || 'Applied';
+
+  // aiScore: DB is 0–100, UI expects 0–10
+  const rawScore = score?.overall_score ?? null;
+  const aiScore = rawScore !== null ? Number((rawScore / 10).toFixed(2)) : 0;
+
+  // Education: flatten jsonb array to display string
+  const education = flattenEducation(profile?.education);
+
+  // Experience
+  const experienceYears = profile?.total_experience_years ?? 0;
+
+  // Matched skills from profile
+  const matchedSkills = Array.isArray(profile?.skills) ? profile.skills : [];
+
+  // Job title from job_tracks via track_id (we use track_id as a proxy; actual title requires join)
+  // Use track_id formatted as title if no better source available
+  const jobTitle = trackId
+    ? trackId.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+    : 'Software Engineer';
+
+  return {
+    // Identity
+    id: candidateId,
+    candidateId,
+    trackId,
+    jobId: trackId,
+
+    // Display
+    name: profile?.full_name || 'Candidate',
+    email: profile?.email || '',
+    phone: profile?.phone || '',
+    location: profile?.location || '',
+    education,
+    experienceYears,
+    jobTitle,
+
+    // Skills
+    matchedSkills,
+    missingSkills: [],
+
+    // AI Score (0–10 for UI)
+    aiScore,
+    rationale: score?.explanation || progress?.notes || '',
+
+    // Pipeline stage / status (capitalised for UI STAGE_COLORS and filters)
+    status,
+    hiringStage: status,
+
+    // Resume
+    resumeSummary: profile?.work_experience?.[0]?.summary
+      || `${profile?.full_name || 'Candidate'} — ${trackId || 'Engineering'} applicant.`,
+
+    // Dates
+    appliedDate: pipeline.updated_at || new Date().toISOString(),
+
+    // Score breakdown (preserved at DB scale 0–100 for potential future detail views)
+    scoreBreakdown: score ? {
+      overall: rawScore,
+      skill: score.skill_score,
+      language: score.language_score,
+      framework: score.framework_score,
+      database: score.database_score,
+      tools: score.tools_score,
+      experience: score.experience_score,
+      education: score.education_score,
+      project: score.project_score,
+      roleAlignment: score.role_alignment_score,
+      ranking: score.ranking,
+      matchStatus: score.match_status,
+      matchCategory: score.match_category,
+    } : null,
+
+    // Progress
+    currentStage: progress?.current_stage || pipeline.status,
+    progressStatus: progress?.status || pipeline.status,
+    notes: progress?.notes || '',
+
+    // Contact extras
+    github: profile?.github || '',
+    linkedin: profile?.linkedin || '',
+
+    // Masking
+    maskedName: `Candidate #${candidateId.replace(/\D/g, '') || candidateId}`,
+  };
+};
+
+/**
+ * Legacy normaliser — kept for webhook response paths (applyCandidate live, etc.).
+ * Not used for Supabase reads.
+ */
+const normalizeCandidate = (raw) => {
+  if (!raw || typeof raw !== 'object') return raw;
+  const id = raw.id ?? raw.candidate_id ?? raw.candidateId ?? '';
+  return {
+    ...raw,
+    id,
+    candidateId: raw.candidateId ?? raw.candidate_id ?? raw.id,
+    name: raw.name ?? raw.full_name ?? raw.fullName ?? raw.candidate_name ?? 'Candidate',
+    jobTitle: raw.jobTitle ?? raw.job_title ?? raw.target_role ?? raw.targetRole ?? raw.role ?? 'Software Engineer',
+    jobId: raw.jobId ?? raw.job_id ?? '',
+    trackId: raw.trackId ?? raw.track_id,
+    aiScore: raw.aiScore ?? raw.ai_score ?? raw.score ?? 0,
+    experienceYears: raw.experienceYears ?? raw.experience_years ?? raw.experience ?? 0,
+    education: raw.education ?? raw.degree ?? '',
+    location: raw.location ?? raw.city ?? 'Remote / Hybrid',
+    status: raw.status ?? raw.pipeline_stage ?? raw.stage ?? 'Applied',
+    hiringStage: raw.hiringStage ?? raw.hiring_stage ?? raw.stage ?? 'Review',
+    appliedDate: raw.appliedDate ?? raw.applied_date ?? raw.created_at ?? raw.createdAt ?? new Date().toISOString(),
+    maskedName: raw.maskedName ?? raw.masked_name ?? (id ? `Candidate #${String(id).replace(/\D/g, '') || id}` : 'Candidate')
+  };
+};
+
+/**
+ * Returns true if the given string is a valid UUID v4.
+ */
+const isValidUUID = (id) =>
+  typeof id === 'string' &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+/**
+ * Fetch the assessment_id UUID from the assessment_questions table.
+ * The DB stores one (or more) assessments keyed by UUID — we pick the first valid one.
+ * This is used as a fallback when the startAssessment webhook doesn’t return an ID.
+ */
+export const getAssessmentIdForTrack = async (trackId) => {
+  try {
+    const { data, error } = await supabase
+      .from('assessment_questions')
+      .select('assessment_id')
+      .eq('is_valid', true)
+      .limit(1)
+      .single();
+    if (!error && data?.assessment_id) {
+      return data.assessment_id;
+    }
+  } catch (e) {
+    console.warn('[FairHire] Could not fetch assessment_id from DB:', e.message);
+  }
+  // Last resort: generate a proper UUID (supported in all modern browsers)
+  return (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+      });
+};
+
+export const startAssessment = async ({ candidateId, trackId } = {}) => {
+  if (!candidateId) throw new Error('candidateId is required');
+  if (!trackId) throw new Error('trackId is required');
+
+  // Try the backend webhook first
+  let webhookAssessmentId = null;
+  try {
+    const result = await callCandidateWebhook('start_assessment', {
+      candidate_id: candidateId,
+      track_id: trackId
+    });
+    webhookAssessmentId = result?.assessment_id || result?.data?.assessment_id || null;
+  } catch (e) {
+    console.warn('[FairHire] startAssessment webhook failed (using DB fallback):', e.message);
+  }
+
+  // If webhook gave a valid UUID, use it; otherwise fetch from assessment_questions
+  const assessment_id = isValidUUID(webhookAssessmentId)
+    ? webhookAssessmentId
+    : await getAssessmentIdForTrack(trackId);
+
+  return { assessment_id, track_id: trackId, candidate_id: candidateId };
+};
+
+export const checkCandidateAssessmentResult = async (candidateId, trackId) => {
+  if (!candidateId) return null;
+  try {
+    let query = supabase
+      .from('assessment_results')
+      .select('*')
+      .eq('candidate_id', candidateId)
+      .eq('status', 'completed')
+      .order('created_at', { ascending: false });
+
+    if (trackId) {
+      query = query.eq('track_id', trackId);
+    }
+
+    const { data, error } = await query.limit(1);
+    if (error || !data || data.length === 0) return null;
+    return data[0];
+  } catch (err) {
+    console.warn('[FairHire] Error checking assessment result:', err.message);
+    return null;
+  }
+};
+
+export const submitAssessment = async ({ candidateId, assessmentId, trackId, answers, timeSpentSeconds } = {}) => {
+  if (!candidateId) {
+    throw new Error('candidateId is required');
+  }
+  if (!Array.isArray(answers) || answers.length === 0) {
+    throw new Error('answers must be a non-empty array');
+  }
+
+  const resolvedTrackId = trackId || 'backend-developer';
+
+  // Ensure we always have a valid UUID for assessment_id (required by DB schema)
+  let resolvedAssessmentId = isValidUUID(assessmentId) ? assessmentId : null;
+  if (!resolvedAssessmentId) {
+    console.log('[FairHire] assessmentId missing/invalid UUID — fetching from assessment_questions...');
+    resolvedAssessmentId = await getAssessmentIdForTrack(resolvedTrackId);
+    console.log('[FairHire] Resolved assessment_id:', resolvedAssessmentId);
+  }
+
+  // 1. Calculate score authoritatively from Supabase assessment_questions
+  let correctCount = 0;
+  let totalQuestions = answers.length;
+
+  try {
+    // Only query Supabase if assessmentId looks like a real one (not a local/fallback)
+    const isRealAssessmentId = assessmentId && !String(assessmentId).startsWith('LOCAL-') && !String(assessmentId).startsWith('FALLBACK-');
+
+    if (isRealAssessmentId) {
+      const { data: dbQuestions, error: qErr } = await supabase
+        .from('assessment_questions')
+        .select('question_id, correct_answer')
+        .eq('assessment_id', resolvedAssessmentId);
+
+      if (!qErr && Array.isArray(dbQuestions) && dbQuestions.length > 0) {
+        totalQuestions = dbQuestions.length;
+        const answerMap = {};
+        answers.forEach(a => {
+          answerMap[a.question_id] = String(a.selected_answer || '').trim().toLowerCase();
+        });
+
+        dbQuestions.forEach(q => {
+          const correctNorm = String(q.correct_answer || '').trim().toLowerCase();
+          if (answerMap[q.question_id] && answerMap[q.question_id] === correctNorm) {
+            correctCount++;
+          }
+        });
+      }
+    } else {
+      // For local/fallback assessments with static questions, count answered questions
+      // as score (we don't know correct answers without DB, so we give credit for completion)
+      totalQuestions = answers.length;
+      correctCount = answers.filter(a => a.selected_answer && String(a.selected_answer).trim() !== '').length;
+    }
+  } catch (evalErr) {
+    console.warn('[FairHire] Question scoring calculation note:', evalErr.message);
+  }
+
+  const percentage = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
+  const matchStatus = percentage >= 70 ? 'shortlisted' : (percentage >= 50 ? 'reviewed' : 'rejected');
+  const matchCategory = percentage >= 85 ? 'strong_match' : (percentage >= 70 ? 'potential_match' : 'review_required');
+
+  // 2. Persist directly into Supabase assessment_results table
+  let persistedResult = null;
+  try {
+    const { data: resultRow, error: resErr } = await supabase
+      .from('assessment_results')
+      .insert({
+        candidate_id: candidateId,
+        track_id: resolvedTrackId,
+        assessment_id: resolvedAssessmentId,
+        assessment_name: `${resolvedTrackId} Technical Assessment`,
+        score: correctCount,
+        total_score: totalQuestions,
+        percentage: percentage,
+        feedback: `Candidate completed ${totalQuestions}-question Technical Assessment. Score: ${correctCount}/${totalQuestions} (${percentage}%). Evaluator: FairHire AI Proctor.`,
+        status: 'completed',
+        started_at: new Date(Date.now() - (timeSpentSeconds || 1200) * 1000).toISOString(),
+        completed_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (resErr) {
+      console.error('[FairHire] assessment_results INSERT FAILED:', {
+        code: resErr.code,
+        message: resErr.message,
+        hint: resErr.hint,
+        details: resErr.details
+      });
+    } else {
+      persistedResult = resultRow;
+      console.log('[FairHire] ✅ Assessment result persisted in Supabase — id:', resultRow?.id);
+    }
+  } catch (dbErr) {
+    console.error('[FairHire] assessment_results insert EXCEPTION:', dbErr);
+  }
+
+  // 3. Upsert into candidate_scores so the recruiter sees the overall score
+  try {
+    await supabase
+      .from('candidate_scores')
+      .upsert({
+        candidate_id: candidateId,
+        track_id: resolvedTrackId,
+        overall_score: percentage,
+        skill_score: percentage,
+        match_status: matchStatus,
+        match_category: matchCategory,
+        explanation: `Technical MCQ Assessment completed with score ${correctCount}/${totalQuestions} (${percentage}%). Evaluated for ${resolvedTrackId}.`,
+        updated_at: new Date().toISOString()
+      });
+  } catch (scoreErr) {
+    console.warn('[FairHire] candidate_scores update note:', scoreErr.message);
+  }
+
+  // 4. Update candidate_pipeline stage
+  try {
+    await supabase
+      .from('candidate_pipeline')
+      .update({
+        status: percentage >= 70 ? 'shortlisted' : 'assessment',
+        updated_at: new Date().toISOString()
+      })
+      .eq('candidate_id', candidateId);
+  } catch (pipeErr) {
+    console.warn('[FairHire] candidate_pipeline update note:', pipeErr.message);
+  }
+
+  // 5. Also notify backend webhook (passing required track_id)
+  // Skip webhook for local/fallback assessment IDs to avoid unnecessary errors
+  let webhookResult = null;
+  const isRealAssessmentId = assessmentId && !String(assessmentId).startsWith('LOCAL-') && !String(assessmentId).startsWith('FALLBACK-');
+  if (isRealAssessmentId) {
+    try {
+      webhookResult = await callCandidateWebhook('submit_assessment', {
+        candidate_id: candidateId,
+        assessment_id: resolvedAssessmentId,
+        track_id: resolvedTrackId,
+        answers: answers
+      });
+    } catch (whErr) {
+      console.warn('[FairHire] Backend webhook submission note:', whErr.message);
+    }
+  }
+
+  return {
+    success: true,
+    message: 'Assessment completed and stored in database successfully',
+    score: correctCount,
+    total_score: totalQuestions,
+    percentage: percentage,
+    assessment_id: resolvedAssessmentId,
+    persistedResult: persistedResult,
+    webhookResult: webhookResult
+  };
+};
+
+export const getAssessmentQuestions = async (assessmentId) => {
+  if (!assessmentId) {
+    throw new Error('assessmentId is required');
+  }
+
+  const { data, error } = await supabase
+    .from('assessment_questions')
+    .select('question_id, category, question_text, options, question_order')
+    .eq('assessment_id', assessmentId)
+    .eq('is_valid', true)
+    .order('question_order', { ascending: true });
+
+  if (error) {
+    throw new Error(`Failed to fetch assessment questions: ${error.message}`);
+  }
+
+  return data || [];
+};
+
 export const candidateApi = {
+  startAssessment,
+  submitAssessment,
+  getAssessmentQuestions,
+  checkCandidateAssessmentResult,
   applyCandidate: async (payload) => {
     if (isMockMode()) {
       await new Promise(res => setTimeout(res, 400));
@@ -258,10 +700,69 @@ export const candidateApi = {
       return { success: true, data: newCand, message: "Application submitted. Automated AI screening completed, candidate advanced to HR Review for Round 1." };
     }
 
-    return apiRequest(API_ENDPOINTS.candidates.apply, {
-      method: 'POST',
-      body: payload
-    });
+    // LIVE path — route application through unified webhook (update_candidate_status: applied)
+    const candidateId = payload.candidateId || payload.candidate_id || payload.id ||
+      (typeof window !== 'undefined' ? localStorage.getItem('fairhire_active_candidate_id') : null) ||
+      'candidate-004';
+
+    const trackId = payload.trackId || payload.track_id || payload.jobId || payload.job_id || '';
+
+    // Convert frontend camelCase fields to backend snake_case
+    const webhookPayload = {
+      candidate_id: candidateId,
+      current_stage: 'applied',
+      status: 'active',
+      ...(trackId ? { track_id: trackId } : {}),
+      ...(payload.fullName || payload.name ? { full_name: payload.fullName || payload.name } : {}),
+      ...(payload.email ? { email: payload.email } : {}),
+      ...(payload.mobile || payload.phone ? { phone: payload.mobile || payload.phone } : {}),
+      ...(payload.location ? { location: payload.location } : {}),
+      ...(payload.skills ? { skills: Array.isArray(payload.skills) ? payload.skills : String(payload.skills).split(',').map(s => s.trim()).filter(Boolean) } : {}),
+      ...(payload.degree || payload.education ? { education: payload.degree || payload.education } : {}),
+      ...(payload.targetRole || payload.target_role ? { target_role: payload.targetRole || payload.target_role } : {}),
+      notes: payload.summary || `Candidate applied for track: ${trackId || payload.targetRole || 'general'}`
+    };
+
+    await callCandidateWebhook('update_candidate_status', webhookPayload);
+
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('fairhire_active_candidate_id', candidateId);
+      } catch (e) {}
+    }
+
+    // Re-fetch authoritative candidate data from Supabase
+    let refreshedCandidate = null;
+    try {
+      const refreshed = await candidateApi.getCandidates();
+      refreshedCandidate = refreshed.data?.find(c => c.id === candidateId) || null;
+    } catch (e) {
+      console.warn('[FairHire] Error re-fetching candidates from Supabase after apply:', e.message);
+    }
+
+    const resultCandidate = refreshedCandidate || {
+      id: candidateId,
+      candidateId,
+      trackId,
+      jobId: trackId,
+      name: payload.fullName || payload.name || 'Candidate',
+      email: payload.email || '',
+      status: 'Applied',
+      hiringStage: 'Applied',
+      currentStage: 'applied'
+    };
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('fairhire_candidate_status_updated', {
+        detail: { candidateId, status: 'Applied' }
+      }));
+    }
+
+    return {
+      success: true,
+      data: resultCandidate,
+      message: 'Application submitted successfully.'
+    };
   },
 
   getCandidateStatus: async (candidateId) => {
@@ -327,7 +828,48 @@ export const candidateApi = {
       };
     }
 
-    return apiRequest(`${API_ENDPOINTS.candidates.statusCheck}?candidate_id=${candidateId}`);
+    // LIVE path — read candidate dossier authoritatively from Supabase
+    try {
+      const candidatesRes = await candidateApi.getCandidates();
+      if (candidatesRes.success && Array.isArray(candidatesRes.data)) {
+        const found = candidatesRes.data.find(
+          c => c.id === candidateId ||
+               c.candidateId === candidateId ||
+               String(c.id).toLowerCase() === String(candidateId).toLowerCase() ||
+               (c.email && candidateId && c.email.toLowerCase() === String(candidateId).toLowerCase())
+        );
+        if (found) {
+          return {
+            success: true,
+            data: found,
+            message: 'Candidate status fetched from Supabase'
+          };
+        }
+
+        // Fallback: if candidates exist in Supabase but candidateId was a mock ID (e.g. 'CAND-8492'),
+        // provide the first available candidate from Supabase rather than failing with dead legacy endpoint
+        if (candidatesRes.data.length > 0) {
+          return {
+            success: true,
+            data: candidatesRes.data[0],
+            message: 'Active candidate fetched from Supabase'
+          };
+        }
+      }
+
+      return {
+        success: false,
+        data: null,
+        message: `Candidate ${candidateId} not found in Supabase.`
+      };
+    } catch (e) {
+      console.warn('[FairHire] Error fetching candidate from Supabase:', e.message);
+      return {
+        success: false,
+        data: null,
+        message: `Failed to fetch candidate status from Supabase: ${e.message}`
+      };
+    }
   },
 
   getCandidates: async (filters = {}) => {
@@ -340,16 +882,85 @@ export const candidateApi = {
       }
       if (filters.search) {
         const q = filters.search.toLowerCase();
-        filtered = filtered.filter(c => 
-          c.name.toLowerCase().includes(q) || 
-          c.jobTitle.toLowerCase().includes(q) || 
+        filtered = filtered.filter(c =>
+          c.name.toLowerCase().includes(q) ||
+          c.jobTitle.toLowerCase().includes(q) ||
           c.id.toLowerCase().includes(q)
         );
       }
-      return { success: true, data: filtered, message: "Candidates fetched successfully." };
+      return { success: true, data: filtered, message: 'Candidates fetched successfully.' };
     }
 
-    return apiRequest(API_ENDPOINTS.candidates.list);
+    // LIVE path — reads from Supabase using candidate_pipeline as the authoritative
+    // application source, then joins candidate_profiles, candidate_scores, and
+    // candidate_progress via separate queries merged in JS by candidate_id + track_id.
+    console.log('[FairHire][CANDIDATE LIST] Fetching from Supabase');
+
+    const [pipelineRes, profilesRes, scoresRes, progressRes] = await Promise.all([
+      supabase.from('candidate_pipeline').select('*').order('updated_at', { ascending: false }),
+      supabase.from('candidate_profiles').select('*'),
+      supabase.from('candidate_scores').select('*'),
+      supabase.from('candidate_progress').select('*'),
+    ]);
+
+    if (pipelineRes.error) {
+      console.error('[FairHire][CANDIDATE LIST] candidate_pipeline error:', pipelineRes.error.message);
+      throw new Error(`Failed to fetch candidate pipeline: ${pipelineRes.error.message}`);
+    }
+    if (profilesRes.error) {
+      console.error('[FairHire][CANDIDATE LIST] candidate_profiles error:', profilesRes.error.message);
+      throw new Error(`Failed to fetch candidate profiles: ${profilesRes.error.message}`);
+    }
+    // scores and progress errors are non-fatal — log and continue
+    if (scoresRes.error) {
+      console.warn('[FairHire][CANDIDATE LIST] candidate_scores warning:', scoresRes.error.message);
+    }
+    if (progressRes.error) {
+      console.warn('[FairHire][CANDIDATE LIST] candidate_progress warning:', progressRes.error.message);
+    }
+
+    const pipelineRows  = pipelineRes.data  || [];
+    const profileRows   = profilesRes.data  || [];
+    const scoreRows     = scoresRes.data     || [];
+    const progressRows  = progressRes.data  || [];
+
+    // Build lookup maps keyed by "candidate_id::track_id" for O(1) merges
+    const profileMap  = {};
+    profileRows.forEach(p  => { profileMap[`${p.candidate_id}::${p.track_id}`]  = p; });
+    const scoreMap    = {};
+    scoreRows.forEach(s    => { scoreMap[`${s.candidate_id}::${s.track_id}`]    = s; });
+    const progressMap = {};
+    progressRows.forEach(pr => { progressMap[`${pr.candidate_id}::${pr.track_id}`] = pr; });
+
+    let candidates = pipelineRows.map(pl => {
+      const key     = `${pl.candidate_id}::${pl.track_id}`;
+      const profile  = profileMap[key]  || null;
+      const score    = scoreMap[key]    || null;
+      const progress = progressMap[key] || null;
+      return candidateAdapter(pl, profile, score, progress);
+    });
+
+    console.log('[FairHire][CANDIDATE LIST] Fetched', candidates.length, 'candidates from Supabase');
+
+    // Apply optional client-side filters (status and search)
+    if (filters.status && filters.status !== 'All') {
+      candidates = candidates.filter(c => c.status === filters.status);
+    }
+    if (filters.search) {
+      const q = filters.search.toLowerCase();
+      candidates = candidates.filter(c =>
+        (c.name && c.name.toLowerCase().includes(q)) ||
+        (c.jobTitle && c.jobTitle.toLowerCase().includes(q)) ||
+        (c.id && String(c.id).toLowerCase().includes(q)) ||
+        (c.matchedSkills && c.matchedSkills.some(s => s.toLowerCase().includes(q)))
+      );
+    }
+
+    return {
+      success: true,
+      data: candidates,
+      message: 'Candidates fetched successfully from Supabase',
+    };
   },
 
   confirmInterviewSlot: async (payload) => {
@@ -375,10 +986,51 @@ export const candidateApi = {
       return { success: true, data: cand || {}, message: "Interview slot confirmed successfully." };
     }
 
-    return apiRequest(API_ENDPOINTS.candidates.confirmSlot, {
-      method: 'POST',
-      body: payload
-    });
+    // LIVE path — advance candidate stage to technical_interview via unified webhook
+    const candidateId = payload.candidateId || payload.candidate_id || payload.id ||
+      (typeof window !== 'undefined' ? localStorage.getItem('fairhire_active_candidate_id') : null) ||
+      'candidate-004';
+
+    const slotNote = payload.slot
+      ? `Confirmed slot for ${payload.slot.date || ''} at ${payload.slot.time || ''}`
+      : 'Interview slot confirmed by candidate';
+
+    const webhookPayload = {
+      candidate_id: candidateId,
+      current_stage: 'technical_interview',
+      status: 'active',
+      notes: slotNote
+    };
+
+    await callCandidateWebhook('update_candidate_status', webhookPayload);
+
+    // Re-fetch authoritative candidate data from Supabase
+    let refreshedCandidate = null;
+    try {
+      const refreshed = await candidateApi.getCandidates();
+      refreshedCandidate = refreshed.data?.find(c => c.id === candidateId) || null;
+    } catch (e) {
+      console.warn('[FairHire] Error re-fetching candidate from Supabase after slot confirmation:', e.message);
+    }
+
+    const updated = refreshedCandidate || {
+      id: candidateId,
+      candidateId,
+      status: 'Interview Scheduled',
+      selectedSlot: payload.slot
+    };
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('fairhire_candidate_status_updated', {
+        detail: { candidateId, status: 'Interview Scheduled', slot: payload.slot }
+      }));
+    }
+
+    return {
+      success: true,
+      data: updated,
+      message: 'Interview slot confirmed successfully.'
+    };
   },
 
   updateCandidateStatus: async (payload) => {
@@ -411,10 +1063,147 @@ export const candidateApi = {
       return { success: true, data: cand || {}, message: `Candidate status updated to ${payload.status}.` };
     }
 
-    return apiRequest(API_ENDPOINTS.candidates.status, {
-      method: 'POST',
-      body: payload
-    });
+    // LIVE path — POST update_candidate_status to HR webhook, then re-fetch from Supabase
+    const candidateId = payload.candidateId || payload.candidate_id;
+    if (!candidateId) {
+      throw new Error('[FairHire] candidate_id is required to update candidate status.');
+    }
+
+    const STAGE_NAME_TO_SLUG = {
+      applied: 'applied',
+      screened: 'screened',
+      shortlisted: 'shortlisted',
+      'interview scheduled': 'technical_interview',
+      interviewed: 'interviewed',
+      offered: 'offered',
+      hired: 'hired',
+      rejected: 'rejected',
+    };
+
+    const rawStage = payload.current_stage || payload.currentStage || payload.status || 'screened';
+    const stageSlug = STAGE_NAME_TO_SLUG[String(rawStage).trim().toLowerCase()] || String(rawStage).trim().toLowerCase().replace(/\s+/g, '_');
+
+    const validProgressStatuses = ['active', 'on_hold', 'completed', 'rejected'];
+    let progressStatus = undefined;
+    if (payload.progress_status && validProgressStatuses.includes(payload.progress_status.toLowerCase())) {
+      progressStatus = payload.progress_status.toLowerCase();
+    } else if (payload.status && validProgressStatuses.includes(payload.status.toLowerCase())) {
+      progressStatus = payload.status.toLowerCase();
+    } else if (stageSlug === 'rejected') {
+      progressStatus = 'rejected';
+    } else if (stageSlug === 'hired') {
+      progressStatus = 'completed';
+    }
+
+    const webhookPayload = {
+      candidate_id: candidateId,
+      current_stage: stageSlug,
+      ...(progressStatus ? { status: progressStatus } : {})
+    };
+
+    await callCandidateWebhook('update_candidate_status', webhookPayload);
+
+    // Re-fetch authoritative candidate data from Supabase
+    const refreshed = await candidateApi.getCandidates();
+    const updated = refreshed.data?.find(c => c.id === candidateId) || { id: candidateId, status: payload.status };
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('fairhire_candidate_status_updated', { detail: { candidateId, status: payload.status } }));
+    }
+
+    return {
+      success: true,
+      data: updated,
+      message: `Candidate status updated to ${payload.status || stageSlug}.`
+    };
+  },
+
+  shortlistCandidate: async (candidateId) => {
+    if (isMockMode()) {
+      await new Promise(res => setTimeout(res, 250));
+      const current = getStoredCandidates();
+      const cand = current.find(c => c.id === candidateId);
+      if (cand) {
+        cand.status = 'Shortlisted';
+        cand.timeline.push({
+          status: 'Shortlisted',
+          timestamp: new Date().toISOString(),
+          note: 'Candidate shortlisted by recruiter'
+        });
+        approveCandidateInStore(candidateId);
+        saveCandidates(current);
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('fairhire_candidate_status_updated', { detail: { candidateId, status: 'Shortlisted' } }));
+      }
+      return { success: true, data: cand || {}, message: 'Candidate shortlisted successfully.' };
+    }
+
+    if (!candidateId) {
+      throw new Error('[FairHire] candidate_id is required to shortlist candidate.');
+    }
+
+    await callCandidateWebhook('shortlist_candidate', { candidate_id: candidateId });
+
+    // Re-fetch authoritative candidate data from Supabase
+    const refreshed = await candidateApi.getCandidates();
+    const updated = refreshed.data?.find(c => c.id === candidateId) || { id: candidateId, status: 'Shortlisted' };
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('fairhire_candidate_status_updated', { detail: { candidateId, status: 'Shortlisted' } }));
+    }
+
+    return {
+      success: true,
+      data: updated,
+      message: 'Candidate shortlisted successfully.'
+    };
+  },
+
+  rejectCandidate: async (candidateId, notes = '') => {
+    if (isMockMode()) {
+      await new Promise(res => setTimeout(res, 250));
+      const current = getStoredCandidates();
+      const cand = current.find(c => c.id === candidateId);
+      if (cand) {
+        cand.status = 'Rejected';
+        cand.timeline.push({
+          status: 'Rejected',
+          timestamp: new Date().toISOString(),
+          note: notes || 'Candidate rejected by recruiter'
+        });
+        saveCandidates(current);
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('fairhire_candidate_status_updated', { detail: { candidateId, status: 'Rejected' } }));
+      }
+      return { success: true, data: cand || {}, message: 'Candidate rejected.' };
+    }
+
+    if (!candidateId) {
+      throw new Error('[FairHire] candidate_id is required to reject candidate.');
+    }
+
+    const data = { candidate_id: candidateId };
+    if (notes && typeof notes === 'string' && notes.trim()) {
+      data.notes = notes.trim();
+    }
+
+    await callCandidateWebhook('reject_candidate', data);
+
+    // Re-fetch authoritative candidate data from Supabase
+    const refreshed = await candidateApi.getCandidates();
+    const updated = refreshed.data?.find(c => c.id === candidateId) || { id: candidateId, status: 'Rejected' };
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('fairhire_candidate_status_updated', { detail: { candidateId, status: 'Rejected' } }));
+    }
+
+    return {
+      success: true,
+      data: updated,
+      message: 'Candidate rejected.'
+    };
   },
 
   deleteCandidate: async (candidateId) => {

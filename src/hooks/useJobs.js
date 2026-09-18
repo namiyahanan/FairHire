@@ -14,7 +14,7 @@ export const useJobs = () => {
     try {
       const res = await jobApi.getJobs();
       if (res.success) {
-        setJobs(res.data);
+        setJobs(Array.isArray(res.data) ? res.data : []);
       } else {
         setError(res.message);
       }
@@ -64,7 +64,26 @@ export const useJobs = () => {
     try {
       const res = await jobApi.createJob(payload);
       if (res.success) {
-        setJobs(prev => [res.data, ...prev]);
+        await fetchJobs();
+      } else {
+        setError(res.message);
+      }
+      return res;
+    } catch (err) {
+      setError(err.message);
+      return { success: false, message: err.message };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateJob = async (payload) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await jobApi.updateJob(payload);
+      if (res.success) {
+        await fetchJobs();
       } else {
         setError(res.message);
       }
@@ -84,6 +103,8 @@ export const useJobs = () => {
       const res = await jobApi.deleteJob(jobId);
       if (res.success) {
         setJobs(prev => prev.filter(j => j.id !== jobId));
+      } else {
+        setError(res.message);
       }
       return res;
     } catch (err) {
@@ -104,6 +125,7 @@ export const useJobs = () => {
     fetchRoles,
     fetchTemplate,
     createJob,
+    updateJob,
     deleteJob
   };
 };

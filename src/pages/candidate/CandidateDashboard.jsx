@@ -46,21 +46,15 @@ import {
 } from '../../services/jobStore';
 import { getCompanyRounds } from '../../services/requirementsStore';
 import { candidateApi } from '../../services/candidateApi';
-
-// Top Companies
-const TOP_COMPANIES = [
-  { name: 'GE Healthcare', rating: 3.9, reviews: '955 reviews', logoText: 'GE', bgColor: 'bg-sky-600', roleCount: 3 },
-  { name: 'Metropolis Health...', rating: 3.9, reviews: '1.1K+ reviews', logoText: 'MH', bgColor: 'bg-emerald-600', roleCount: 2 },
-  { name: 'Assa Abloy', rating: 3.6, reviews: '242 reviews', logoText: 'AA', bgColor: 'bg-slate-700', roleCount: 1 },
-  { name: 'Stripe', rating: 4.4, reviews: '3.2K+ reviews', logoText: 'S', bgColor: 'bg-indigo-600', roleCount: 4 },
-  { name: 'Atlassian', rating: 4.2, reviews: '2.8K+ reviews', logoText: 'AT', bgColor: 'bg-blue-600', roleCount: 3 }
-];
+import { jobApi } from '../../services/jobApi';
+import { isMockMode } from '../../services/api';
 
 const CandidateDashboard = () => {
   const { user } = useAuth();
 
-  // Dynamic jobs list from persistent Job Store
-  const [jobsList, setJobsList] = useState(() => getStoredJobs());
+  // Dynamic jobs list from Supabase in Live mode, or jobStore in Mock mode
+  const [jobsList, setJobsList] = useState(() => isMockMode() ? getStoredJobs() : []);
+  const [loadingJobs, setLoadingJobs] = useState(() => !isMockMode());
 
   // Active view mode: 'jobs' (Live Openings) | 'guide' (Complete Preparation Guide)
   const [activeMainTab, setActiveMainTab] = useState('jobs');
@@ -121,8 +115,36 @@ const CandidateDashboard = () => {
   });
 
   useEffect(() => {
+    let cancelled = false;
+
+    const loadJobs = async () => {
+      if (isMockMode()) {
+        setJobsList(getStoredJobs());
+        setLoadingJobs(false);
+        return;
+      }
+
+      setLoadingJobs(true);
+      try {
+        const res = await jobApi.getJobs();
+        if (cancelled) return;
+        if (res.success && Array.isArray(res.data)) {
+          setJobsList(res.data);
+        } else {
+          setJobsList([]);
+        }
+      } catch (err) {
+        console.warn('[FairHire] Error loading jobs from Supabase in CandidateDashboard:', err);
+        if (!cancelled) setJobsList([]);
+      } finally {
+        if (!cancelled) setLoadingJobs(false);
+      }
+    };
+
+    loadJobs();
+
     const syncJobs = () => {
-      setJobsList(getStoredJobs());
+      loadJobs();
     };
 
     const handleProfileUpdate = () => {
@@ -136,12 +158,13 @@ const CandidateDashboard = () => {
     window.addEventListener('storage', handleProfileUpdate);
 
     return () => {
+      cancelled = true;
       window.removeEventListener('fairhire_jobs_updated', syncJobs);
       window.removeEventListener('fairhire_profile_updated', handleProfileUpdate);
       window.removeEventListener('storage', syncJobs);
       window.removeEventListener('storage', handleProfileUpdate);
     };
-  }, []);
+  }, [user]);
 
   const handleDisabilitySubmit = (e) => {
     if (e) e.preventDefault();
@@ -162,6 +185,7 @@ const CandidateDashboard = () => {
     try {
       await candidateApi.applyCandidate({
         jobId: role.id,
+        trackId: role.trackId || role.id,
         targetRole: role.title,
         fullName: user?.name || 'Alex Morgan',
         email: user?.email || 'alex.morgan@example.com',
@@ -785,7 +809,23 @@ const CandidateDashboard = () => {
               </div>
 
               {/* Job Roles Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 pt-4">
+              {loadingJobs ? (
+                <div className="h-64 flex flex-col items-center justify-center gap-3">
+                  <div className="w-8 h-8 border-3 border-teal-500 border-t-transparent rounded-full animate-spin" />
+                  <p className="text-xs text-slate-500 font-semibold">Loading live job openings from database...</p>
+                </div>
+              ) : filteredRoles.length === 0 ? (
+                <div className="bg-slate-50 rounded-2xl border border-slate-200 p-12 text-center my-4">
+                  <Building2 className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                  <h4 className="text-base font-bold text-navy-900">No Job Openings Found</h4>
+                  <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                    {searchQuery
+                      ? `No positions matched your search "${searchQuery}". Try different keywords.`
+                      : 'There are currently no active job tracks in the database.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 pt-4">
                 {filteredRoles.map((role) => (
                   <div
                     key={role.id}
@@ -910,72 +950,63 @@ const CandidateDashboard = () => {
                   </div>
                 ))}
               </div>
-
-              {filteredRoles.length === 0 && (
-                <div className="text-center py-12">
-                  <p className="text-sm font-bold text-slate-700">No positions found matching your filter or query.</p>
-                  <button
-                    type="button"
-                    onClick={() => { setSelectedTrack('ALL'); setSearchQuery(''); }}
-                    className="mt-3 text-xs text-teal-600 font-bold underline cursor-pointer"
-                  >
-                    Clear all filters
-                  </button>
-                </div>
               )}
             </section>
 
-            {/* 4. TOP COMPANIES SECTION */}
-            <section className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm">
-              <div className="flex items-center justify-between pb-5 border-b border-slate-100">
-                <h3 className="text-xl font-extrabold text-navy-900 tracking-tight">
-                  Top companies
-                </h3>
-                <button
-                  onClick={() => {
-                    setSelectedTrack('ALL');
-                    setSearchQuery('');
-                  }}
-                  className="text-xs font-bold text-teal-600 hover:text-navy-900 transition-colors cursor-pointer"
-                >
-                  View all
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 pt-5">
-                {TOP_COMPANIES.map((comp, idx) => (
-                  <div
-                    key={idx}
-                    className="p-5 rounded-2xl border border-slate-200 hover:border-teal-400 hover:shadow-md transition-all text-center flex flex-col items-center justify-between bg-slate-50/50"
+            {/* 4. HIRING COMPANIES SECTION (DYNMICALLY DERIVED FROM DATABASE JOBS) */}
+            {jobsList.length > 0 && (
+              <section className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm">
+                <div className="flex items-center justify-between pb-5 border-b border-slate-100">
+                  <h3 className="text-xl font-extrabold text-navy-900 tracking-tight">
+                    Hiring Companies
+                  </h3>
+                  <button
+                    onClick={() => {
+                      setSelectedTrack('ALL');
+                      setSearchQuery('');
+                    }}
+                    className="text-xs font-bold text-teal-600 hover:text-navy-900 transition-colors cursor-pointer"
                   >
-                    <div>
-                      <div className={`w-14 h-14 rounded-2xl ${comp.bgColor} text-white flex items-center justify-center font-black text-lg mx-auto shadow-sm mb-3`}>
-                        {comp.logoText}
-                      </div>
-                      <h4 className="font-bold text-navy-900 text-sm line-clamp-1">
-                        {comp.name}
-                      </h4>
-                      <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 mt-1">
-                        <span className="font-bold text-amber-500">★ {comp.rating}</span>
-                        <span>|</span>
-                        <span className="text-[11px]">{comp.reviews}</span>
-                      </div>
-                    </div>
+                    View all
+                  </button>
+                </div>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSearchQuery(comp.name.split(' ')[0]);
-                        window.scrollTo({ top: 400, behavior: 'smooth' });
-                      }}
-                      className="mt-4 w-full py-2 rounded-xl text-xs font-bold text-teal-600 hover:bg-teal-50 border border-teal-200 transition-colors cursor-pointer"
-                    >
-                      View jobs
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </section>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pt-5">
+                  {Array.from(new Set(jobsList.map(j => j.company).filter(Boolean))).map((compName, idx) => {
+                    const compJobs = jobsList.filter(j => j.company === compName);
+                    return (
+                      <div
+                        key={idx}
+                        className="p-5 rounded-2xl border border-slate-200 hover:border-teal-400 hover:shadow-md transition-all text-center flex flex-col items-center justify-between bg-slate-50/50"
+                      >
+                        <div>
+                          <div className="w-14 h-14 rounded-2xl bg-teal-600 text-white flex items-center justify-center font-black text-lg mx-auto shadow-sm mb-3">
+                            {compName.slice(0, 2).toUpperCase()}
+                          </div>
+                          <h4 className="font-bold text-navy-900 text-sm line-clamp-1">
+                            {compName}
+                          </h4>
+                          <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 mt-1">
+                            <span className="font-bold text-teal-600">{compJobs.length} active position{compJobs.length === 1 ? '' : 's'}</span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearchQuery(compName);
+                            window.scrollTo({ top: 400, behavior: 'smooth' });
+                          }}
+                          className="mt-4 w-full py-2 rounded-xl text-xs font-bold text-teal-600 hover:bg-teal-50 border border-teal-200 transition-colors cursor-pointer"
+                        >
+                          View jobs
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
           </div>
         )}
 

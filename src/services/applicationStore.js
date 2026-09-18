@@ -1,8 +1,101 @@
 // Utility to manage candidate applications and dynamic progress tracking
 const STORAGE_KEY = 'fairhire_candidate_applications';
 
-export const DEFAULT_APPLICATIONS = [];
-const APPLICATIONS_DATA_VER = 'v5_clean_apps';
+export const DEFAULT_APPLICATIONS = [
+  {
+    id: 'APP-BACKEND-DEV-001',
+    jobId: 'role-backend',
+    trackId: 'backend-developer',
+    jobTitle: 'Backend Developer',
+    company: 'FairHire Enterprise',
+    companyInitial: 'FH',
+    companyBg: 'bg-teal-600',
+    location: 'Remote / Hybrid',
+    salary: 'Competitive • $120k - $150k',
+    appliedDate: 'Sep 18, 2026',
+    status: 'Applied • Round 1 Action Required',
+    statusBadgeVariant: 'teal',
+    currentStageIndex: 0,
+    progressPercent: 20,
+    aiScore: '9.1',
+    screeningCriteria: 'Python, REST API, Microservices architecture, PostgreSQL, asynchronous systems.',
+    rationale: 'Candidate profile exhibits top 5% match for Backend Developer competencies and clean system design.',
+    matchedSkills: ['Python', 'PostgreSQL', 'REST API', 'Docker', 'FastAPI'],
+    missingSkills: [],
+    courses: [
+      { title: 'Advanced Backend System Design & Scalability', provider: 'Coursera / DeepLearning.AI' },
+      { title: 'PostgreSQL Query Optimization & Indexing', provider: 'DataCamp / Industry' }
+    ],
+    stages: [
+      { id: 'stage-1', number: '01', name: 'Applied', badge: 'Active Now', status: 'completed', timestamp: 'Sep 18, 2026', description: 'Application intake & decoupled profile.', details: 'Demographic markers decoupled for blind screening.' },
+      { id: 'stage-2', number: '02', name: 'AI Screening', badge: 'Pending', status: 'upcoming', timestamp: 'Pending', description: 'Automated semantic competency scan.', details: 'Awaiting round 1 aptitude assessment results.' },
+      { id: 'stage-3', number: '03', name: 'Review', badge: 'Pending', status: 'upcoming', timestamp: 'Pending', description: '3 Company Rounds by HR.', details: 'Initial HR Screening, Technical Assessment, Panel.' },
+      { id: 'stage-4', number: '04', name: 'Final Decision', badge: 'Pending', status: 'upcoming', timestamp: 'Pending', description: 'Offer / Concluded.', details: 'Final hiring decision and salary package negotiation.' }
+    ]
+  },
+  {
+    id: 'APP-FULLSTACK-ENG-002',
+    jobId: 'role-fullstack',
+    trackId: 'WEB',
+    jobTitle: 'Full Stack Engineer',
+    company: 'FairHire Cloud Tech',
+    companyInitial: 'FT',
+    companyBg: 'bg-indigo-600',
+    location: 'Bangalore, India • Hybrid',
+    salary: '₹22 - 28 LPA',
+    appliedDate: 'Sep 15, 2026',
+    status: 'AI Screening Completed • 8.9 Match',
+    statusBadgeVariant: 'emerald',
+    currentStageIndex: 1,
+    progressPercent: 45,
+    aiScore: '8.9',
+    screeningCriteria: 'React 18, TypeScript, Node.js, GraphQL, Cloud Native deployments.',
+    rationale: 'Strong frontend architecture paired with modern TypeScript and fullstack full-lifecycle experience.',
+    matchedSkills: ['React', 'TypeScript', 'Node.js', 'Tailwind CSS', 'Git'],
+    missingSkills: ['GraphQL'],
+    courses: [
+      { title: 'Modern React 18 Concurrent Features & State Machines', provider: 'Frontend Masters' }
+    ],
+    stages: [
+      { id: 'stage-1', number: '01', name: 'Applied', badge: 'Completed', status: 'completed', timestamp: 'Sep 15, 2026', description: 'Application intake & decoupled profile.', details: 'Demographic markers decoupled for blind screening.' },
+      { id: 'stage-2', number: '02', name: 'AI Screening', badge: 'Completed (8.9/10)', status: 'completed', timestamp: 'Sep 16, 2026', description: 'Automated semantic competency scan.', details: 'Semantic fit confirmed above 85% threshold.' },
+      { id: 'stage-3', number: '03', name: 'Review', badge: 'Active / Queue', status: 'current', timestamp: 'Under Review', description: 'Hiring Committee Review.', details: 'Engineering panel reviewing candidate GitHub repositories.' },
+      { id: 'stage-4', number: '04', name: 'Final Decision', badge: 'Upcoming', status: 'upcoming', timestamp: 'Pending', description: 'Offer / Concluded.', details: 'Pending interview outcome.' }
+    ]
+  },
+  {
+    id: 'APP-DATA-INFRA-003',
+    jobId: 'role-data',
+    trackId: 'DATA',
+    jobTitle: 'Data & Infrastructure Specialist',
+    company: 'FinTech Dynamics',
+    companyInitial: 'FD',
+    companyBg: 'bg-amber-600',
+    location: 'Remote',
+    salary: 'Competitive • $135k - $160k',
+    appliedDate: 'Sep 10, 2026',
+    status: 'In Review • Round 2 Scheduled',
+    statusBadgeVariant: 'indigo',
+    currentStageIndex: 2,
+    progressPercent: 70,
+    aiScore: '9.4',
+    screeningCriteria: 'Distributed Data Systems, Kafka, Spark, Snowflake, AWS Infrastructure.',
+    rationale: 'Exceptional depth in streaming data architecture and high-throughput transactional infrastructure.',
+    matchedSkills: ['Python', 'SQL', 'Kafka', 'Docker', 'AWS'],
+    missingSkills: [],
+    courses: [
+      { title: 'Distributed Systems & Fault Tolerance in Financial Data', provider: 'MIT OpenCourseWare' }
+    ],
+    stages: [
+      { id: 'stage-1', number: '01', name: 'Applied', badge: 'Completed', status: 'completed', timestamp: 'Sep 10, 2026', description: 'Application intake & decoupled profile.', details: 'Demographic markers decoupled for blind screening.' },
+      { id: 'stage-2', number: '02', name: 'AI Screening', badge: 'Completed (9.4/10)', status: 'completed', timestamp: 'Sep 11, 2026', description: 'Automated semantic competency scan.', details: 'Ranked #1 in streaming infrastructure domain.' },
+      { id: 'stage-3', number: '03', name: 'Review', badge: 'Active / Round 2', status: 'current', timestamp: 'Sep 19, 2026', description: 'Technical Deep-Dive & Architecture.', details: 'Panel interview confirmed on calendar.' },
+      { id: 'stage-4', number: '04', name: 'Final Decision', badge: 'Upcoming', status: 'upcoming', timestamp: 'Pending', description: 'Offer / Concluded.', details: 'Awaiting panel completion.' }
+    ]
+  }
+];
+
+const APPLICATIONS_DATA_VER = 'v7_master_detail_reset';
 
 export const getAppliedApplications = () => {
   let companyName = 'FairHire Enterprise';
@@ -16,29 +109,33 @@ export const getAppliedApplications = () => {
 
   const normalizeApp = (app) => ({
     ...app,
-    company: companyName,
-    companyInitial: 'FH',
-    companyBg: 'bg-teal-600'
+    company: app.company || companyName,
+    companyInitial: app.companyInitial || 'FH',
+    companyBg: app.companyBg || 'bg-teal-600'
   });
 
   try {
     const storedVer = localStorage.getItem('fairhire_applications_ver');
-    if (storedVer !== APPLICATIONS_DATA_VER) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+    const raw = localStorage.getItem(STORAGE_KEY);
+    
+    if (storedVer !== APPLICATIONS_DATA_VER || !raw) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_APPLICATIONS));
       localStorage.setItem('fairhire_applications_ver', APPLICATIONS_DATA_VER);
-      return [];
+      return DEFAULT_APPLICATIONS.map(normalizeApp);
     }
 
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0) return [];
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_APPLICATIONS));
+      return DEFAULT_APPLICATIONS.map(normalizeApp);
+    }
     return parsed.map(normalizeApp);
   } catch (e) {
     console.error('Error reading applied applications from localStorage', e);
-    return [];
+    return DEFAULT_APPLICATIONS.map(normalizeApp);
   }
 };
+
 
 export const isJobAlreadyApplied = (jobId) => {
   const apps = getAppliedApplications();

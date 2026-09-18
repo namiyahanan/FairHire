@@ -1,9 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { Link } from 'react-router-dom';
 import DashboardLayout from '../../components/layout/DashboardLayout';
 import PageHeader from '../../components/layout/PageHeader';
 import Button from '../../components/common/Button';
 import Badge from '../../components/common/Badge';
+import { AuthContext } from '../../context/AuthContext';
+import { candidateApi } from '../../services/candidateApi';
+import { isMockMode } from '../../services/api';
 import {
   getAppliedApplications,
   isJobAlreadyApplied
@@ -45,27 +48,46 @@ import {
   candidateAttendRound
 } from '../../services/candidateHiringStore';
 import { getCompanyRounds } from '../../services/requirementsStore';
+import { startAssessment, submitAssessment, checkCandidateAssessmentResult } from '../../services/candidateApi';
 import AiAptitudeAssessment from '../../components/candidates/AiAptitudeAssessment';
 
 const ApplicationStatus = () => {
+  const { user } = useContext(AuthContext);
   const [applications, setApplications] = useState([]);
   const [selectedAppId, setSelectedAppId] = useState(null);
   const [activeStageTab, setActiveStageTab] = useState(null);
+  const [loadingApps, setLoadingApps] = useState(false);
+  const [fetchError, setFetchError] = useState(null);
 
-  const activeCandidateId = (typeof window !== 'undefined' ? localStorage.getItem('fairhire_active_candidate_id') : null) || 'CAND-8492';
+  // Resolve candidate ID: auth context user first, then localStorage session key — no hardcoded fallback.
+  const activeCandidateId =
+    user?.id ||
+    (typeof window !== 'undefined' ? localStorage.getItem('fairhire_active_candidate_id') : null) ||
+    null;
 
   // Candidate hiring progression state
-  const [candidateHiring, setCandidateHiring] = useState(() => getCandidateHiringState(activeCandidateId));
+  const [candidateHiring, setCandidateHiring] = useState(() =>
+    activeCandidateId ? getCandidateHiringState(activeCandidateId) : null
+  );
   const [showAssessmentModal, setShowAssessmentModal] = useState(false);
   const [assessmentSubmitting, setAssessmentSubmitting] = useState(false);
   const [assessmentCompletedSuccess, setAssessmentCompletedSuccess] = useState(null);
   const [selectedSlotIndex, setSelectedSlotIndex] = useState(0);
+  const [assessmentId, setAssessmentId] = useState(null);
+  const [assessmentStarting, setAssessmentStarting] = useState(false);
+  const [assessmentStartError, setAssessmentStartError] = useState(null);
+  const [assessmentAlreadyDone, setAssessmentAlreadyDone] = useState(false);
 
   // Sync candidate hiring store in real-time
   useEffect(() => {
     const handleHiringUpdate = () => {
-      const currentCandId = (typeof window !== 'undefined' ? localStorage.getItem('fairhire_active_candidate_id') : null) || 'CAND-8492';
-      setCandidateHiring(getCandidateHiringState(currentCandId));
+      const currentCandId =
+        user?.id ||
+        (typeof window !== 'undefined' ? localStorage.getItem('fairhire_active_candidate_id') : null) ||
+        null;
+      if (currentCandId) {
+        setCandidateHiring(getCandidateHiringState(currentCandId));
+      }
     };
 
     window.addEventListener('fairhire_hiring_updated', handleHiringUpdate);
@@ -79,18 +101,96 @@ const ApplicationStatus = () => {
       window.removeEventListener('fairhire_recruiter_requirements_updated', handleHiringUpdate);
       window.removeEventListener('storage', handleHiringUpdate);
     };
-  }, []);
+  }, [user?.id]);
 
-  // Load applications from applicationStore
+  // Load applications:
+  //   mock mode  → applicationStore (localStorage)
+  //   live mode  → candidateApi.getCandidates() → Supabase (authoritative)
   useEffect(() => {
-    const apps = getAppliedApplications();
-    setApplications(apps);
-    if (apps.length > 0) {
-      setSelectedAppId(apps[0].id);
-      // Default active stage tab to current candidate hiring stage
-      setActiveStageTab(candidateHiring?.stage || 'Review');
-    }
-  }, [candidateHiring?.stage]);
+    let cancelled = false;
+
+    const loadApplications = async () => {
+      if (isMockMode()) {
+        const apps = getAppliedApplications();
+        if (!cancelled) {
+          setApplications(apps);
+          if (apps.length > 0) {
+            setSelectedAppId(apps[0].id);
+            setActiveStageTab(prev => prev || candidateHiring?.stage || 'Review');
+          }
+        }
+        return;
+      }
+
+      // Live mode: no candidate ID means no authenticated session — show empty state.
+      if (!activeCandidateId) {
+        if (!cancelled) {
+          setApplications([]);
+          setFetchError(null);
+        }
+        return;
+      }
+
+      setLoadingApps(true);
+      setFetchError(null);
+      try {
+        const res = await candidateApi.getCandidates();
+        if (cancelled) return;
+
+        if (res.success && Array.isArray(res.data) && res.data.length > 0) {
+          // Narrow to records belonging to this candidate; fall back to full list if none match.
+          const mine = res.data.filter(
+            c =>
+              c.id === activeCandidateId ||
+              c.candidateId === activeCandidateId ||
+              (user?.email && c.email && c.email.toLowerCase() === user.email.toLowerCase())
+          );
+          const displayList = mine.length > 0 ? mine : res.data;
+
+          // Adapt candidateApi records to the applicationStore shape the UI expects.
+          const adapted = displayList.map(c => ({
+            id: c.id,
+            candidateId: c.id,
+            trackId: c.trackId || c.jobId || '',
+            jobId: c.trackId || c.jobId || '',
+            jobTitle: c.jobTitle || 'Software Engineer',
+            company: 'FairHire Enterprise',
+            companyInitial: 'FH',
+            companyBg: 'bg-teal-600',
+            location: c.location || 'Remote / Hybrid',
+            salary: 'Competitive',
+            appliedDate: c.appliedDate,
+            aiScore: c.aiScore || 0,
+            status: c.status || 'Applied',
+            hiringStage: c.hiringStage || 'Applied',
+            stages: c.stages || [],
+            courses: c.courses || [],
+            resumeSummary: c.resumeSummary || '',
+            rationale: c.rationale || '',
+          }));
+
+          setApplications(adapted);
+          if (adapted.length > 0) {
+            setSelectedAppId(adapted[0].id);
+            setActiveStageTab(prev => prev || candidateHiring?.stage || 'Review');
+          }
+        } else {
+          setApplications([]);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('[FairHire] ApplicationStatus: failed to load from candidateApi:', err.message);
+          setFetchError('Unable to load application data. Please try again.');
+          setApplications([]);
+        }
+      } finally {
+        if (!cancelled) setLoadingApps(false);
+      }
+    };
+
+    loadApplications();
+    return () => { cancelled = true; };
+  }, [activeCandidateId, candidateHiring?.stage, user?.email]);
 
   const currentApp = applications.find(a => a.id === selectedAppId) || applications[0];
 
@@ -99,9 +199,68 @@ const ApplicationStatus = () => {
     setActiveStageTab(candidateHiring?.stage || 'Review');
   };
 
-  // Assessment submission handler (attends round with HR timing slot selection or asynchronous)
-  const handleCompleteAssessment = (submissionData) => {
+  // Assessment start handler: resolves a valid UUID from webhook or DB, enforces single attempt
+  const handleStartAssessment = async () => {
+    if (assessmentStarting) return;
+
+    const candId = currentApp?.candidateId || activeCandidateId;
+    if (!candId) {
+      setAssessmentStartError('Candidate ID is required to start assessment.');
+      return;
+    }
+
+    const trackId = currentApp?.trackId || currentApp?.jobId;
+    if (!trackId) {
+      setAssessmentStartError('Track ID is required to start assessment.');
+      return;
+    }
+
+    setAssessmentStarting(true);
+    setAssessmentStartError(null);
+
+    try {
+      // Single-attempt check: query Supabase before allowing start
+      const existing = await checkCandidateAssessmentResult(candId, trackId);
+      if (existing) {
+        setAssessmentAlreadyDone(true);
+        setAssessmentStartError('You have already completed this assessment. Only one attempt is permitted per application.');
+        return;
+      }
+
+      // startAssessment now always returns a valid UUID (webhook → DB fallback → crypto.randomUUID)
+      const result = await startAssessment({ candidateId: candId, trackId });
+      setAssessmentId(result.assessment_id);
+      setShowAssessmentModal(true);
+    } catch (err) {
+      console.error('[FairHire] Failed to start assessment:', err);
+      setAssessmentStartError(err.message || 'Failed to start assessment. Please try again.');
+    } finally {
+      setAssessmentStarting(false);
+    }
+  };
+
+  // Assessment submission: persists to Supabase + updates local hiring state
+  const handleCompleteAssessment = async (submissionData) => {
     setAssessmentSubmitting(true);
+    const candId = currentApp?.candidateId || activeCandidateId;
+    const trackId = currentApp?.trackId || currentApp?.jobId || 'backend-developer';
+
+    // 1. Persist to Supabase (assessment_results + candidate_scores + pipeline)
+    try {
+      const dbRes = await submitAssessment({
+        candidateId: candId,
+        assessmentId: assessmentId || submissionData.assessmentId,
+        trackId,
+        answers: submissionData.answers,
+        timeSpentSeconds: submissionData.timeSpentSeconds
+      });
+      console.log('[FairHire] Assessment persisted to DB:', dbRes?.assessment_id, 'Score:', dbRes?.percentage + '%');
+      setAssessmentAlreadyDone(true);
+    } catch (dbErr) {
+      console.error('[FairHire] Supabase assessment persist error:', dbErr);
+    }
+
+    // 2. Update local hiring store for UI pipeline progress
     const roundIdx = candidateHiring?.currentRoundIndex || 0;
     const currentRound = candidateHiring?.rounds?.[roundIdx];
     const isSlotRequired = roundIdx >= 2;
@@ -116,20 +275,61 @@ const ApplicationStatus = () => {
       : 'Asynchronous (Anytime within deadline)';
 
     setTimeout(() => {
-      const currentCandId = currentApp?.candidateId || activeCandidateId;
-      const updated = candidateAttendRound(currentCandId, roundIdx, chosenSlotText, submissionData);
+      const updated = candidateAttendRound(candId, roundIdx, chosenSlotText, submissionData);
       setCandidateHiring(updated);
       setAssessmentSubmitting(false);
+      setShowAssessmentModal(false);
       const roundName = updated.rounds?.[roundIdx]?.name || `Round ${roundIdx + 1}`;
-      // STRICT CANDIDATE PRIVACY: Candidate must never see the marks, only HR can view
       setAssessmentCompletedSuccess(
-        `✓ Assessment for "${roundName}" completed and securely delivered to HR! Evaluator results are now available on the HR recruiter dashboard.`
+        `✓ Assessment for "${roundName}" completed and securely delivered to HR! Results are now on the HR dashboard.`
       );
-      setTimeout(() => {
-        setAssessmentCompletedSuccess(null);
-      }, 7000);
+      setTimeout(() => setAssessmentCompletedSuccess(null), 7000);
     }, 400);
   };
+
+  // Loading state while fetching from Supabase in live mode
+  if (loadingApps) {
+    return (
+      <DashboardLayout>
+        <PageHeader
+          title="Live Application Tracker"
+          subtitle="Loading your application status…"
+        />
+        <div className="flex items-center justify-center py-24">
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-teal-50 flex items-center justify-center">
+              <span className="w-6 h-6 rounded-full border-2 border-teal-600 border-t-transparent animate-spin inline-block" />
+            </div>
+            <p className="text-sm text-slate-500 font-medium">Fetching live application status…</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  // Error state (live mode fetch failure)
+  if (fetchError) {
+    return (
+      <DashboardLayout>
+        <PageHeader
+          title="Live Application Tracker"
+          subtitle="Could not retrieve your application status."
+        />
+        <div className="bg-rose-50 rounded-3xl border border-rose-200 p-12 text-center max-w-xl mx-auto shadow-sm my-8">
+          <div className="w-16 h-16 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-4">
+            <AlertCircle className="w-8 h-8" />
+          </div>
+          <h3 className="text-xl font-bold text-navy-900 mb-2">Failed to Load Application</h3>
+          <p className="text-sm text-slate-500 mb-6">{fetchError}</p>
+          <Link to="/candidate">
+            <Button variant="gradient" size="md" icon={ArrowRight}>
+              Back to Roles
+            </Button>
+          </Link>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   if (!currentApp) {
     return (
@@ -228,59 +428,137 @@ const ApplicationStatus = () => {
         }
       />
 
-      <div className="space-y-8">
-        
-        {/* ================= 1. MULTI-APPLICATION SELECTOR TABS ================= */}
-        {applications.length > 1 && (
-          <div className="bg-white rounded-2xl border border-slate-200 p-3 sm:p-4 shadow-xs">
-            <div className="flex items-center justify-between gap-3 mb-2 px-1">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Your Applied Roles ({applications.length})
-              </span>
-              <span className="text-[11px] text-teal-600 font-semibold">
-                Click any role to view detailed stage milestones
-              </span>
+      {/* ===== MASTER-DETAIL LAYOUT ===== */}
+      <div className="flex gap-6 items-start">
+
+        {/* ========== LEFT SIDEBAR: Applications List ========== */}
+        <aside
+          style={{ width: '300px', minWidth: '260px', maxWidth: '320px' }}
+          className="shrink-0 sticky top-6"
+        >
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            {/* Sidebar Header */}
+            <div className="px-4 py-3.5 border-b border-slate-100 bg-slate-50/80">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black uppercase tracking-wider text-slate-600">
+                  Applied Roles
+                </span>
+                <span className="text-[10px] font-bold bg-teal-100 text-teal-800 border border-teal-200 px-2 py-0.5 rounded-full">
+                  {applications.length} Active
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">Click a role to view full pipeline</p>
             </div>
-            
-            <div className="flex items-center gap-2.5 overflow-x-auto pb-1">
+
+            {/* Application Cards List */}
+            <div className="divide-y divide-slate-100 max-h-[calc(100vh-200px)] overflow-y-auto">
               {applications.map((app) => {
-                const isSelected = app.id === currentApp.id;
+                const isSelected = app.id === (currentApp?.id);
+                // Compute a per-app progress based on currentStageIndex or progressPercent
+                const appProgress = app.progressPercent || (app.currentStageIndex != null ? Math.round(((app.currentStageIndex + 1) / (app.stages?.length || 4)) * 100) : 20);
+                const appStage = app.stages?.find(s => s.status === 'current') || app.stages?.[app.currentStageIndex] || app.stages?.[0];
+                const stageLabel = appStage?.name || app.status || 'Applied';
+
                 return (
                   <button
                     key={app.id}
                     onClick={() => handleSelectApp(app)}
-                    className={`px-4 py-3 rounded-xl border text-left transition-all flex items-center gap-3 shrink-0 cursor-pointer ${
+                    className={`w-full text-left px-4 py-4 transition-all block cursor-pointer group ${
                       isSelected
-                        ? 'bg-navy-900 text-white border-navy-900 shadow-md ring-2 ring-teal-400/40'
-                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 hover:border-slate-300'
+                        ? 'bg-navy-900'
+                        : 'hover:bg-slate-50'
                     }`}
                   >
-                    <div className={`w-8 h-8 rounded-lg ${app.companyBg || 'bg-teal-600'} text-white font-bold text-xs flex items-center justify-center shrink-0`}>
-                      {app.companyInitial || app.company.charAt(0)}
-                    </div>
-                    <div>
-                      <h5 className="text-xs font-extrabold leading-tight">
-                        {app.jobTitle}
-                      </h5>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className={`text-[10px] font-semibold ${isSelected ? 'text-teal-300' : 'text-slate-500'}`}>
+                    {/* Company + Job */}
+                    <div className="flex items-start gap-3 mb-3">
+                      <div className={`w-9 h-9 rounded-xl ${app.companyBg || 'bg-teal-600'} text-white font-black text-xs flex items-center justify-center shrink-0 shadow-sm`}>
+                        {app.companyInitial || app.company?.charAt(0)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h5 className={`text-xs font-extrabold leading-tight truncate ${
+                          isSelected ? 'text-white' : 'text-navy-900'
+                        }`}>
+                          {app.jobTitle}
+                        </h5>
+                        <span className={`text-[10px] font-semibold ${
+                          isSelected ? 'text-teal-300' : 'text-slate-500'
+                        }`}>
                           {app.company}
                         </span>
-                        <span className="inline-block w-1 h-1 rounded-full bg-slate-400" />
-                        <span className={`text-[10px] font-bold ${isSelected ? 'text-emerald-300' : 'text-emerald-600'}`}>
-                          {app.status || 'Active in Pipeline'}
+                      </div>
+                      {isSelected && (
+                        <div className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse shrink-0 mt-1" />
+                      )}
+                    </div>
+
+                    {/* Mini Progress Bar */}
+                    <div className="space-y-1.5">
+                      <div className={`w-full h-1.5 rounded-full overflow-hidden ${
+                        isSelected ? 'bg-navy-800' : 'bg-slate-100'
+                      }`}>
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-teal-400 to-emerald-400 transition-all duration-500"
+                          style={{ width: `${appProgress}%` }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className={`text-[10px] font-semibold truncate ${
+                          isSelected ? 'text-teal-300' : 'text-slate-500'
+                        }`}>
+                          {stageLabel}
+                        </span>
+                        <span className={`text-[10px] font-black font-mono ${
+                          isSelected ? 'text-emerald-300' : 'text-teal-700'
+                        }`}>
+                          {appProgress}%
                         </span>
                       </div>
                     </div>
+
+                    {/* AI Score badge */}
+                    {app.aiScore && (
+                      <div className={`mt-2 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                        isSelected
+                          ? 'bg-teal-900/50 text-teal-200 border border-teal-700'
+                          : 'bg-teal-50 text-teal-700 border border-teal-200'
+                      }`}>
+                        <Sparkles className="w-2.5 h-2.5" />
+                        AI Score: {app.aiScore}/10
+                      </div>
+                    )}
                   </button>
                 );
               })}
             </div>
-          </div>
-        )}
 
-        {/* ================= ACTIVE ASSESSMENT UNLOCKED BANNER (WHEN HR APPROVES ROUND) ================= */}
-        {isRoundUnlockedForCandidate && activeRound && (
+            {/* Browse More CTA */}
+            <div className="p-3 border-t border-slate-100 bg-slate-50/60">
+              <Link to="/candidate" className="block">
+                <button className="w-full px-3 py-2.5 rounded-xl border border-dashed border-teal-300 text-teal-700 text-[11px] font-bold hover:bg-teal-50 transition-all flex items-center justify-center gap-1.5 cursor-pointer">
+                  <Search className="w-3.5 h-3.5" />
+                  Apply to More Roles
+                </button>
+              </Link>
+            </div>
+          </div>
+        </aside>
+
+        {/* ========== RIGHT PANEL: Detail View ========== */}
+        <div className="flex-1 min-w-0 space-y-8">
+        
+        {/* Detail panel active-job breadcrumb */}
+        <div className="flex items-center gap-2 text-xs text-slate-500 -mb-2">
+          <span className="font-semibold text-slate-400">Viewing:</span>
+          <span className={`w-4 h-4 rounded-md ${currentApp.companyBg || 'bg-teal-600'} text-white font-black text-[8px] flex items-center justify-center shrink-0`}>
+            {currentApp.companyInitial || currentApp.company?.charAt(0)}
+          </span>
+          <span className="font-bold text-navy-900">{currentApp.jobTitle}</span>
+          <span className="text-slate-300">—</span>
+          <span className="text-teal-600 font-semibold">{currentApp.company}</span>
+        </div>
+
+        {/* ================= ACTIVE ASSESSMENT BANNER ================= */}
+        {activeRound && (
           <div className="bg-gradient-to-br from-navy-950 via-slate-900 to-teal-950 text-white rounded-3xl p-6 sm:p-8 shadow-2xl border-2 border-teal-400/40 animate-in fade-in slide-in-from-top-3 duration-300 relative overflow-hidden">
             {/* Ambient glow */}
             <div className="absolute top-0 right-0 w-96 h-96 bg-teal-500/15 rounded-full blur-3xl pointer-events-none" />
@@ -345,15 +623,36 @@ const ApplicationStatus = () => {
                     </p>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setShowAssessmentModal(true)}
-                    className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-navy-950 text-xs font-black shadow-xl hover:shadow-teal-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 shrink-0"
-                  >
-                    <Sparkles className="w-4 h-4 text-navy-950" />
-                    <span>Start AI Aptitude Assessment Now</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
+                  {assessmentAlreadyDone ? (
+                    <div className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 text-xs font-black flex items-center justify-center gap-2 shrink-0">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Assessment Completed ✓</span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={assessmentStarting}
+                      onClick={handleStartAssessment}
+                      className={`w-full sm:w-auto px-6 py-3.5 rounded-2xl text-navy-950 text-xs font-black shadow-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 shrink-0 ${
+                        assessmentStarting
+                          ? 'bg-teal-300 opacity-80 cursor-not-allowed'
+                          : 'bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 hover:shadow-teal-500/25'
+                      }`}
+                    >
+                      {assessmentStarting ? (
+                        <>
+                          <Clock className="w-4 h-4 animate-spin text-navy-950" />
+                          <span>Preparing Assessment...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4 text-navy-950" />
+                          <span>Start AI Aptitude Assessment Now</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
 
                 {activeRound.invitation?.instructions && (
@@ -448,16 +747,48 @@ const ApplicationStatus = () => {
 
                   <button
                     type="button"
-                    onClick={() => setShowAssessmentModal(true)}
-                    className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-navy-950 text-xs font-black shadow-xl hover:shadow-teal-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                    disabled={assessmentStarting}
+                    onClick={handleStartAssessment}
+                    className={`w-full sm:w-auto px-6 py-3 rounded-2xl text-navy-950 text-xs font-black shadow-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 ${
+                      assessmentStarting
+                        ? 'bg-teal-300 opacity-80 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 hover:shadow-teal-500/20'
+                    }`}
                   >
-                    <Sparkles className="w-4 h-4 text-navy-950" />
-                    <span>Confirm Slot & Attend Assessment</span>
-                    <ArrowRight className="w-4 h-4" />
+                    {assessmentStarting ? (
+                      <>
+                        <Clock className="w-4 h-4 animate-spin text-navy-950" />
+                        <span>Preparing Assessment...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4 text-navy-950" />
+                        <span>Confirm Slot & Attend Assessment</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ================= ASSESSMENT START ERROR NOTIFICATION ================= */}
+        {assessmentStartError && (
+          <div className="bg-rose-600 text-white rounded-2xl p-5 shadow-lg flex items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-white/20 text-white flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <p className="text-xs sm:text-sm font-bold">{assessmentStartError}</p>
+            </div>
+            <button
+              onClick={() => setAssessmentStartError(null)}
+              className="p-1.5 text-white/80 hover:text-white rounded-lg hover:bg-white/10 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
         )}
 
@@ -976,12 +1307,26 @@ const ApplicationStatus = () => {
                                   </div>
                                   <button
                                     type="button"
-                                    onClick={() => setShowAssessmentModal(true)}
-                                    className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-black shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95 shrink-0"
+                                    disabled={assessmentStarting}
+                                    onClick={handleStartAssessment}
+                                    className={`px-5 py-2.5 rounded-xl text-white text-xs font-black shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95 shrink-0 ${
+                                      assessmentStarting
+                                        ? 'bg-teal-400 opacity-80 cursor-not-allowed'
+                                        : 'bg-teal-600 hover:bg-teal-700'
+                                    }`}
                                   >
-                                    <PlayCircle className="w-4 h-4" />
-                                    <span>Start AI Aptitude Test</span>
-                                    <ArrowRight className="w-4 h-4" />
+                                    {assessmentStarting ? (
+                                      <>
+                                        <Clock className="w-4 h-4 animate-spin" />
+                                        <span>Preparing Assessment...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <PlayCircle className="w-4 h-4" />
+                                        <span>Start AI Aptitude Test</span>
+                                        <ArrowRight className="w-4 h-4" />
+                                      </>
+                                    )}
                                   </button>
                                 </div>
                               </div>
@@ -1049,12 +1394,26 @@ const ApplicationStatus = () => {
                                 <div className="flex items-center justify-end pt-1">
                                   <button
                                     type="button"
-                                    onClick={() => setShowAssessmentModal(true)}
-                                    className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-black shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+                                    disabled={assessmentStarting}
+                                    onClick={handleStartAssessment}
+                                    className={`px-5 py-2.5 rounded-xl text-white text-xs font-black shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95 ${
+                                      assessmentStarting
+                                        ? 'bg-teal-400 opacity-80 cursor-not-allowed'
+                                        : 'bg-teal-600 hover:bg-teal-700'
+                                    }`}
                                   >
-                                    <PlayCircle className="w-4 h-4" />
-                                    <span>Attend Round {idx + 1} Assessment Now</span>
-                                    <ArrowRight className="w-4 h-4" />
+                                    {assessmentStarting ? (
+                                      <>
+                                        <Clock className="w-4 h-4 animate-spin" />
+                                        <span>Preparing Assessment...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <PlayCircle className="w-4 h-4" />
+                                        <span>Attend Round {idx + 1} Assessment Now</span>
+                                        <ArrowRight className="w-4 h-4" />
+                                      </>
+                                    )}
                                   </button>
                                 </div>
                               </div>
@@ -1233,7 +1592,8 @@ const ApplicationStatus = () => {
           </Link>
         </section>
 
-      </div>
+        </div>{/* end right panel */}
+      </div>{/* end master-detail */}
 
       {/* ================= INTERACTIVE AI APTITUDE ASSESSMENT MODAL ================= */}
       {showAssessmentModal && activeRound && (
@@ -1249,6 +1609,7 @@ const ApplicationStatus = () => {
             </button>
 
             <AiAptitudeAssessment
+              assessmentId={assessmentId}
               roleTitle={currentApp?.jobTitle || 'Frontend Engineer'}
               roundName={activeRound.name}
               candidateId={currentApp?.candidateId || activeCandidateId}

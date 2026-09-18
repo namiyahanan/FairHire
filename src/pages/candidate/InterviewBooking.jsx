@@ -10,7 +10,6 @@ import { useCandidates } from '../../hooks/useCandidates';
 import { useAuth } from '../../hooks/useAuth';
 import { ROLES } from '../../utils/constants';
 import {
-  isInterviewBookingApproved,
   approveCandidateInStore,
   revokeCandidateApprovalInStore
 } from '../../services/candidateApi';
@@ -34,27 +33,25 @@ import {
 
 const InterviewBooking = () => {
   const { currentCandidate, fetchCandidateStatus, confirmInterviewSlot, loading } = useCandidates();
-  const { switchRole } = useAuth();
+  const { user, switchRole } = useAuth();
+
+  // Resolve candidate ID from authenticated session — no hardcoded fallback.
+  const activeCandidateId =
+    user?.id ||
+    (typeof window !== 'undefined' ? localStorage.getItem('fairhire_active_candidate_id') : null) ||
+    null;
 
   const [toastMessage, setToastMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Approval state from centralized store
-  const [approvalState, setApprovalState] = useState(() => isInterviewBookingApproved('CAND-8492'));
-
-  const checkApproval = () => {
-    const res = isInterviewBookingApproved('CAND-8492');
-    setApprovalState(res);
-  };
-
   useEffect(() => {
-    fetchCandidateStatus('CAND-8492');
-    checkApproval();
+    if (!activeCandidateId) return;
 
-    // Listen to real-time events when HR approves or updates candidate status
+    fetchCandidateStatus(activeCandidateId);
+
+    // Re-fetch authoritative status when HR pushes an update event.
     const handleUpdate = () => {
-      fetchCandidateStatus('CAND-8492');
-      checkApproval();
+      fetchCandidateStatus(activeCandidateId);
     };
 
     window.addEventListener('fairhire_candidate_status_updated', handleUpdate);
@@ -66,29 +63,32 @@ const InterviewBooking = () => {
       window.removeEventListener('fairhire_application_updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
     };
-  }, [fetchCandidateStatus]);
+  }, [fetchCandidateStatus, activeCandidateId]);
 
   const handleConfirmSlot = async (slot) => {
+    if (!activeCandidateId) return;
     setSubmitting(true);
-    const res = await confirmInterviewSlot('CAND-8492', slot);
+    const res = await confirmInterviewSlot(activeCandidateId, slot);
     setSubmitting(false);
 
     if (res.success) {
       setToastMessage(`Interview slot confirmed for ${slot.date} at ${slot.time}!`);
-      checkApproval();
     }
   };
 
-  // Demo simulation controls for interactive testing
+  // Demo simulation controls — use real candidate ID so mock store stays coherent.
   const handleSimulateHrApproval = () => {
-    approveCandidateInStore('CAND-8492');
-    checkApproval();
+    if (!activeCandidateId) return;
+    approveCandidateInStore(activeCandidateId);
+    // Trigger re-fetch so the component picks up the updated mock store state.
+    fetchCandidateStatus(activeCandidateId);
     setToastMessage('✓ HR Approval simulated! Interview booking is now UNLOCKED.');
   };
 
   const handleSimulateReLock = () => {
-    revokeCandidateApprovalInStore('CAND-8492');
-    checkApproval();
+    if (!activeCandidateId) return;
+    revokeCandidateApprovalInStore(activeCandidateId);
+    fetchCandidateStatus(activeCandidateId);
     setToastMessage('🔒 Candidate status reverted to Screened. Interview booking is now BLOCKED.');
   };
 
@@ -102,17 +102,53 @@ const InterviewBooking = () => {
     );
   }
 
-  const cand = currentCandidate || approvalState.candidate || {
-    id: "CAND-8492",
-    status: "Screened",
+  // No authenticated candidate ID — show an informational empty state.
+  if (!activeCandidateId) {
+    return (
+      <DashboardLayout>
+        <PageHeader
+          title="Interview Booking"
+          subtitle="Sign in as a candidate to access your interview booking."
+        />
+        <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center max-w-xl mx-auto shadow-sm my-8">
+          <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4">
+            <HelpCircle className="w-8 h-8" />
+          </div>
+          <h3 className="text-xl font-bold text-navy-900 mb-2">No Candidate Session Found</h3>
+          <p className="text-sm text-slate-500 mb-6">
+            Please sign in as a candidate to view your interview booking status.
+          </p>
+          <Link to="/candidate/status">
+            <Button variant="gradient" size="md" icon={Award}>
+              Go to Application Status
+            </Button>
+          </Link>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  // Candidate data: prefer live Supabase data from useCandidates; fall back to minimal structure.
+  const cand = currentCandidate || {
+    id: activeCandidateId,
+    status: 'Applied',
     interviewSlots: [
-      { id: "SLOT-101", date: "2026-09-12", time: "10:00 AM - 11:00 AM EST", status: "available" },
-      { id: "SLOT-102", date: "2026-09-12", time: "02:00 PM - 03:00 PM EST", status: "available" },
-      { id: "SLOT-103", date: "2026-09-13", time: "11:30 AM - 12:30 PM EST", status: "available" }
+      { id: 'SLOT-101', date: '2026-09-12', time: '10:00 AM - 11:00 AM EST', status: 'available' },
+      { id: 'SLOT-102', date: '2026-09-12', time: '02:00 PM - 03:00 PM EST', status: 'available' },
+      { id: 'SLOT-103', date: '2026-09-13', time: '11:30 AM - 12:30 PM EST', status: 'available' }
     ]
   };
 
-  const isApproved = approvalState.approved || cand.status === 'Shortlisted' || cand.status === 'Interview Scheduled' || cand.status === 'Interviewed';
+  // Interview eligibility is derived from the authoritative Supabase candidate status —
+  // NOT from localStorage. These statuses match the PIPELINE_STATUS_MAP in candidateApi.js.
+  const INTERVIEW_ELIGIBLE_STATUSES = [
+    'Shortlisted',
+    'Interview Scheduled',
+    'Interviewed',
+    'Offered',
+    'Hired',
+  ];
+  const isApproved = INTERVIEW_ELIGIBLE_STATUSES.includes(cand.status);
 
   return (
     <DashboardLayout>
@@ -293,7 +329,7 @@ const InterviewBooking = () => {
                     You have been approved for the Technical Interview Round!
                   </h4>
                   <p className="text-xs text-teal-100 mt-0.5">
-                    Please select your preferred date & time slot below to confirm your interview appointment.
+                    Please select your preferred date &amp; time slot below to confirm your interview appointment.
                   </p>
                 </div>
               </div>
@@ -321,7 +357,7 @@ const InterviewBooking = () => {
                   <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-0.5 rounded-full">
                     Confirmed Reservation
                   </span>
-                  <h3 className="text-2xl font-black text-navy-900 mt-2">Interview Scheduled & Confirmed!</h3>
+                  <h3 className="text-2xl font-black text-navy-900 mt-2">Interview Scheduled &amp; Confirmed!</h3>
                   <p className="text-xs sm:text-sm text-slate-500 mt-1">
                     Your appointment is locked for <strong>{cand.selectedSlot.date}</strong> at <strong>{cand.selectedSlot.time}</strong>.
                   </p>
@@ -346,8 +382,7 @@ const InterviewBooking = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      cand.selectedSlot = null;
-                      confirmInterviewSlot('CAND-8492', null);
+                      confirmInterviewSlot(activeCandidateId, null);
                       setToastMessage('Slot cleared. You can select another time.');
                     }}
                     className="text-xs font-bold text-slate-500 hover:text-navy-900 underline cursor-pointer"

@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import Button from '../common/Button';
 import { getAptitudeQuestionsForRole } from '../../data/aptitudeQuestions';
+import { getAssessmentQuestions } from '../../services/candidateApi';
 
 // ─── PHASES ───────────────────────────────────────────────────────────────────
 // 'guidelines' → show rules / start screen
@@ -36,11 +37,64 @@ const AiAptitudeAssessment = ({
   roleTitle = 'Frontend Engineer',
   roundName = 'Technical & Coding Assessment',
   candidateId = 'CAND-8492',
+  assessmentId = null,
   onComplete,
   onClose
 }) => {
-  const questions = getAptitudeQuestionsForRole(roleTitle);
+  // ── questions loading & state ────────────────────────────────────────────────
+  const [questions, setQuestions] = useState([]);
+  const [questionsLoading, setQuestionsLoading] = useState(false);
+  const [questionsError, setQuestionsError] = useState(null);
   const totalQuestions = questions.length;
+
+  useEffect(() => {
+    if (!assessmentId) {
+      // If assessmentId is missing, do not attempt to query Supabase
+      const staticBank = getAptitudeQuestionsForRole(roleTitle);
+      const normalized = (staticBank || []).map((q, idx) => ({
+        question_id: String(q.id),
+        category: q.topic,
+        question_text: q.question,
+        options: q.options,
+        question_order: idx + 1
+      }));
+      setQuestions(normalized);
+      setQuestionsLoading(false);
+      setQuestionsError(null);
+      return;
+    }
+
+    let isMounted = true;
+    const fetchQuestions = async () => {
+      setQuestionsLoading(true);
+      setQuestionsError(null);
+      try {
+        const rows = await getAssessmentQuestions(assessmentId);
+        if (isMounted) {
+          const normalized = (rows || []).map(q => ({
+            ...q,
+            options: Array.isArray(q.options)
+              ? q.options
+              : (typeof q.options === 'string' ? JSON.parse(q.options) : [])
+          }));
+          setQuestions(normalized);
+        }
+      } catch (err) {
+        if (isMounted) {
+          setQuestionsError(err.message || 'Failed to load assessment questions.');
+        }
+      } finally {
+        if (isMounted) {
+          setQuestionsLoading(false);
+        }
+      }
+    };
+
+    fetchQuestions();
+    return () => {
+      isMounted = false;
+    };
+  }, [assessmentId, roleTitle]);
 
   // ── phase state ──────────────────────────────────────────────────────────────
   const [phase, setPhase] = useState('guidelines'); // 'guidelines' | 'active' | 'submitted'
@@ -70,7 +124,7 @@ const AiAptitudeAssessment = ({
   phaseRef.current = phase;
 
   const currentQuestion = questions[currentIndex];
-  const selectedOption = answers[currentQuestion?.id];
+  const selectedOption = answers[currentQuestion?.question_id];
 
   // ── fullscreen API ──────────────────────────────────────────────────────────
   const launchProctoredExam = useCallback(() => {
@@ -150,8 +204,9 @@ const AiAptitudeAssessment = ({
     }
   };
 
-  const handleSelectOption = optIdx => {
-    setAnswers(prev => ({ ...prev, [currentQuestion.id]: optIdx }));
+  const handleSelectOption = (optionText) => {
+    if (!currentQuestion) return;
+    setAnswers(prev => ({ ...prev, [currentQuestion.question_id]: optionText }));
   };
 
   const handleNextQuestion = () => {
@@ -164,26 +219,6 @@ const AiAptitudeAssessment = ({
 
   const handleSubmitAssessment = useCallback(() => {
     const currentAnswers = answersRef.current;
-    let rawScore = 0;
-
-    const breakdown = questions.map(q => {
-      const candidateAns = currentAnswers[q.id];
-      const isCorrect = candidateAns === q.correctAnswer;
-      if (isCorrect) rawScore++;
-      return {
-        id: q.id,
-        topic: q.topic,
-        question: q.question,
-        candidateAnswer: candidateAns !== undefined ? q.options[candidateAns] : 'Timed Out / Unanswered',
-        candidateOptionIndex: candidateAns,
-        correctAnswer: q.options[q.correctAnswer],
-        correctOptionIndex: q.correctAnswer,
-        isCorrect,
-        explanation: q.explanation
-      };
-    });
-
-    const percentageScore = Math.round((rawScore / totalQuestions) * 100);
     const totalTimeSpentSeconds = Math.round((Date.now() - startTime) / 1000);
 
     // exit fullscreen on submit
@@ -194,27 +229,71 @@ const AiAptitudeAssessment = ({
     setPhase('submitted');
 
     if (onComplete) {
+      const formattedAnswers = questions.map(q => ({
+        question_id: q.question_id,
+        selected_answer: currentAnswers[q.question_id] || ''
+      }));
+
       onComplete({
-        score: percentageScore,
-        rawScore,
+        assessmentId,
+        candidateId,
+        answers: formattedAnswers,
+        rawAnswers: currentAnswers,
         totalQuestions,
-        questionsBreakdown: breakdown,
         timeSpentSeconds: totalTimeSpentSeconds,
         fullscreenExits: fullscreenExitCount,
-        feedback: `Candidate completed ${totalQuestions}-question AI Aptitude Assessment with ${rawScore}/${totalQuestions} correct (${percentageScore}%).`
+        feedback: `Candidate completed ${totalQuestions}-question AI Aptitude Assessment.`
       });
     }
-  }, [questions, totalQuestions, startTime, fullscreenExitCount, onComplete]);
+  }, [assessmentId, candidateId, questions, totalQuestions, startTime, fullscreenExitCount, onComplete]);
 
   // ── derived ─────────────────────────────────────────────────────────────────
-  const progressPercent = Math.round(((currentIndex + 1) / totalQuestions) * 100);
-  const isLastQuestion = currentIndex === totalQuestions - 1;
+  const progressPercent = totalQuestions > 0 ? Math.round(((currentIndex + 1) / totalQuestions) * 100) : 0;
+  const isLastQuestion = totalQuestions > 0 && currentIndex === totalQuestions - 1;
   const timerColor =
     timeLeft <= 10
       ? 'text-rose-600 bg-rose-50 border-rose-300 animate-pulse'
       : timeLeft <= 20
       ? 'text-amber-600 bg-amber-50 border-amber-300'
       : 'text-teal-700 bg-teal-50 border-teal-200';
+
+  // ============================================================================
+  // LOADING / ERROR STATES
+  // ============================================================================
+  if (questionsLoading) {
+    return (
+      <div className="p-8 sm:p-12 text-center space-y-4 animate-in fade-in duration-200">
+        <div className="w-12 h-12 rounded-2xl bg-teal-50 text-teal-600 border border-teal-200 flex items-center justify-center mx-auto animate-spin">
+          <Clock className="w-6 h-6" />
+        </div>
+        <div className="space-y-1">
+          <h4 className="text-base font-extrabold text-navy-900">Loading your assessment...</h4>
+          <p className="text-xs text-slate-500">
+            Fetching technical aptitude questions from secure evaluation server.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (questionsError) {
+    return (
+      <div className="p-8 sm:p-12 text-center space-y-4 animate-in fade-in duration-200">
+        <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 border border-rose-200 flex items-center justify-center mx-auto">
+          <AlertTriangle className="w-6 h-6" />
+        </div>
+        <div className="space-y-1">
+          <h4 className="text-base font-extrabold text-navy-900">Unable to Load Assessment</h4>
+          <p className="text-xs text-rose-700 max-w-md mx-auto">{questionsError}</p>
+        </div>
+        <div className="pt-2">
+          <Button variant="outline" size="sm" onClick={onClose}>
+            Close Assessment
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   // ============================================================================
   // PHASE: SUBMITTED / COMPLETION SCREEN
@@ -282,8 +361,8 @@ const AiAptitudeAssessment = ({
       {
         icon: <FileText className="w-5 h-5 text-teal-600" />,
         color: 'bg-teal-50 border-teal-200',
-        title: '10 Questions Total',
-        desc: `All 10 questions are role-specific to ${roleTitle}. Questions cover core technical aptitude, problem-solving, and domain knowledge.`
+        title: `${totalQuestions || 20} Questions Total`,
+        desc: `All ${totalQuestions || 20} questions are role-specific to ${roleTitle}. Questions cover core technical aptitude, problem-solving, and domain knowledge.`
       },
       {
         icon: <Eye className="w-5 h-5 text-rose-600" />,
@@ -319,7 +398,7 @@ const AiAptitudeAssessment = ({
                   Proctored AI Assessment
                 </span>
                 <span className="text-[10px] font-black uppercase tracking-wider bg-indigo-50 text-indigo-800 border border-indigo-200 px-2.5 py-0.5 rounded-full">
-                  {totalQuestions} Questions · 10 Minutes
+                  {totalQuestions || 20} Questions · {totalQuestions || 20} Minutes
                 </span>
               </div>
               <h3 className="text-lg sm:text-xl font-black text-navy-900 mt-0.5">
@@ -332,9 +411,9 @@ const AiAptitudeAssessment = ({
           {/* Quick stats row */}
           <div className="grid grid-cols-3 gap-3">
             {[
-              { label: 'Questions', value: '10', sub: 'MCQ format', icon: <BookOpen className="w-4 h-4 text-teal-600" /> },
+              { label: 'Questions', value: String(totalQuestions || 20), sub: 'MCQ format', icon: <BookOpen className="w-4 h-4 text-teal-600" /> },
               { label: 'Time/Question', value: '1:00', sub: 'Auto-advances', icon: <Clock className="w-4 h-4 text-amber-600" /> },
-              { label: 'Total Time', value: '10 Min', sub: 'Max duration', icon: <Maximize2 className="w-4 h-4 text-indigo-600" /> }
+              { label: 'Total Time', value: `${totalQuestions || 20} Min`, sub: 'Max duration', icon: <Maximize2 className="w-4 h-4 text-indigo-600" /> }
             ].map((stat, i) => (
               <div key={i} className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-center">
                 <div className="flex justify-center mb-1">{stat.icon}</div>
@@ -458,7 +537,7 @@ const AiAptitudeAssessment = ({
                 Question {currentIndex + 1} of {totalQuestions}
               </span>
               <span className="text-xs text-slate-400 font-medium">
-                • {currentQuestion.topic}
+                • {currentQuestion?.category || currentQuestion?.topic || 'Aptitude'}
               </span>
               {!isFullscreen && (
                 <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full animate-pulse">
@@ -513,23 +592,23 @@ const AiAptitudeAssessment = ({
             {currentIndex + 1}
           </span>
           <span className="text-xs font-bold text-teal-700 bg-white px-2.5 py-0.5 rounded-lg border border-slate-200">
-            {currentQuestion.topic}
+            {currentQuestion?.category || currentQuestion?.topic || 'General'}
           </span>
         </div>
         <p className="text-sm sm:text-base font-bold text-navy-900 leading-relaxed">
-          {currentQuestion.question}
+          {currentQuestion?.question_text || currentQuestion?.question}
         </p>
       </div>
 
       {/* ── OPTIONS ──────────────────────────────────────────────────────────── */}
       <div className="space-y-2.5">
-        {currentQuestion.options.map((optionText, optIdx) => {
-          const isSelected = selectedOption === optIdx;
+        {(currentQuestion?.options || []).map((optionText, optIdx) => {
+          const isSelected = selectedOption === optionText;
           return (
             <button
               key={optIdx}
               type="button"
-              onClick={() => handleSelectOption(optIdx)}
+              onClick={() => handleSelectOption(optionText)}
               className={`w-full p-4 rounded-2xl border text-left transition-all flex items-center justify-between gap-3 cursor-pointer ${
                 isSelected
                   ? 'bg-teal-50/70 border-teal-500 ring-2 ring-teal-500/20 shadow-xs'

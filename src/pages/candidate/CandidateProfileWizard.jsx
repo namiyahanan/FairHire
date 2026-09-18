@@ -4,6 +4,8 @@ import DashboardLayout from '../../components/layout/DashboardLayout';
 import { useAuth } from '../../hooks/useAuth';
 import { DEGREE_OPTIONS, COUNTRY_CODES } from '../../utils/constants';
 import { extractTextFromFile, parseResumeText } from '../../services/resumeParser';
+import { candidateApi } from '../../services/candidateApi';
+import { isMockMode, callResumeParsingWebhook } from '../../services/api';
 import {
   CheckCircle2,
   ArrowRight,
@@ -54,11 +56,17 @@ const CandidateProfileWizard = () => {
   const profileFrozenKey = `fairhire_profile_frozen_${userId}`;
   const profileDataKey = `fairhire_frozen_profile_data_${userId}`;
 
+  const activeCandidateId =
+    user?.id ||
+    (typeof window !== 'undefined' ? localStorage.getItem('fairhire_active_candidate_id') : null) ||
+    null;
+
   // Parsing simulation & real extraction state
   const [isParsing, setIsParsing] = useState(false);
   const [parsingStep, setParsingStep] = useState(0);
   const [parseSuccessToast, setParseSuccessToast] = useState(null);
   const [saveSuccessToast, setSaveSuccessToast] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [newSkillInput, setNewSkillInput] = useState('');
 
   // Main Form Data State
@@ -170,28 +178,79 @@ const CandidateProfileWizard = () => {
   // Track fields that were populated via AI Resume Extraction
   const [autoFilledFields, setAutoFilledFields] = useState({});
 
-  // Sync state if user context loads later
+  // Sync state: live mode queries Supabase via candidateApi; mock mode uses localStorage / context
   useEffect(() => {
-    if (user && (!formData.fullName || formData.fullName === 'Candidate')) {
-      const uid = user?._id || user?.id || 'guest';
-      const saved = localStorage.getItem(`fairhire_frozen_profile_data_${uid}`);
-      if (saved) {
-        try {
-          setFormData(JSON.parse(saved));
-          return;
-        } catch (e) {}
-      }
-      setFormData(prev => ({
-        ...prev,
-        fullName: prev.fullName || user.name || '',
-        email: prev.email || user.email || '',
-        mobile: prev.mobile || user.profile?.mobile || '',
-        location: prev.location || user.profile?.location || ''
-      }));
-    }
-  }, [user]);
+    let cancelled = false;
 
-  // Real resume file upload & parser
+    if (isMockMode()) {
+      if (user && (!formData.fullName || formData.fullName === 'Candidate')) {
+        const uid = user?._id || user?.id || 'guest';
+        const saved = localStorage.getItem(`fairhire_frozen_profile_data_${uid}`);
+        if (saved) {
+          try {
+            setFormData(JSON.parse(saved));
+            return;
+          } catch (e) {}
+        }
+        setFormData(prev => ({
+          ...prev,
+          fullName: prev.fullName || user.name || '',
+          email: prev.email || user.email || '',
+          mobile: prev.mobile || user.profile?.mobile || '',
+          location: prev.location || user.profile?.location || ''
+        }));
+      }
+      return;
+    }
+
+    // Live mode: fetch authoritative profile from candidateApi / Supabase
+    if (!activeCandidateId) {
+      if (user) {
+        setFormData(prev => ({
+          ...prev,
+          fullName: prev.fullName || user.name || '',
+          email: prev.email || user.email || '',
+          mobile: prev.mobile || user.profile?.mobile || '',
+          location: prev.location || user.profile?.location || ''
+        }));
+      }
+      return;
+    }
+
+    const loadProfileFromBackend = async () => {
+      try {
+        const res = await candidateApi.getCandidateStatus(activeCandidateId);
+        if (cancelled) return;
+        if (res.success && res.data) {
+          const c = res.data;
+          setFormData(prev => ({
+            ...prev,
+            fullName: c.name || prev.fullName || user?.name || '',
+            email: c.email || prev.email || user?.email || '',
+            mobile: c.phone || prev.mobile || user?.profile?.mobile || '',
+            location: c.location || prev.location || user?.profile?.location || '',
+            experienceYears: c.experienceYears !== undefined && c.experienceYears !== null ? String(c.experienceYears) : prev.experienceYears,
+            skills: Array.isArray(c.matchedSkills) && c.matchedSkills.length > 0 ? c.matchedSkills : prev.skills,
+            degree: c.education || prev.degree,
+            targetRole: c.jobTitle || c.targetRole || prev.targetRole,
+            summary: c.resumeSummary || prev.summary,
+            linkedinUrl: c.linkedin || prev.linkedinUrl,
+            portfolioUrl: c.github || prev.portfolioUrl,
+          }));
+        }
+      } catch (err) {
+        console.warn('[FairHire] Error loading profile from Supabase in CandidateProfileWizard:', err.message);
+      }
+    };
+
+    loadProfileFromBackend();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, activeCandidateId]);
+
+  // Resume file upload & parser
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -204,109 +263,186 @@ const CandidateProfileWizard = () => {
       setTimeout(() => setParsingStep(3), 600);
       setTimeout(() => setParsingStep(4), 900);
 
-      const rawText = await extractTextFromFile(file);
-      const parsed = parseResumeText(rawText);
+      let parsed = {};
+
+      if (isMockMode()) {
+        // Mock mode: local client-side extraction & regex parsing
+        const rawText = await extractTextFromFile(file);
+        parsed = parseResumeText(rawText);
+      } else {
+        // LIVE mode: dispatch to production resume parsing webhook
+        const trackIdToUse = (formData.targetRole || formData.preferredRole || '').toLowerCase().includes('data') || (formData.targetRole || formData.preferredRole || '').toLowerCase().includes('backend') ? 'backend-developer' : 'WEB';
+        const webhookResult = await callResumeParsingWebhook({
+          file,
+          candidateId: activeCandidateId || 'candidate-001',
+          trackId: trackIdToUse
+        });
+
+        const rawData =
+          webhookResult?.result?.profile ||
+          webhookResult?.profile ||
+          webhookResult?.result ||
+          webhookResult?.data ||
+          webhookResult?.parsed ||
+          webhookResult ||
+          {};
+
+        const firstEdu = Array.isArray(rawData.education) && rawData.education.length > 0
+          ? (typeof rawData.education[0] === 'object' ? rawData.education[0] : null)
+          : null;
+
+        const returnedCandidateId =
+          webhookResult?.result?.candidateId ||
+          webhookResult?.candidate_id ||
+          webhookResult?.result?.profile?.candidate_id ||
+          rawData.candidate_id;
+
+        if (returnedCandidateId && typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('fairhire_active_candidate_id', returnedCandidateId);
+          } catch (e) {}
+        }
+
+        parsed = {
+          fullName: rawData.fullName || rawData.full_name || rawData.name,
+          email: rawData.email,
+          mobile: rawData.mobile || rawData.phone || rawData.phone_number,
+          location: rawData.location || rawData.city || rawData.address,
+          headline: rawData.headline || rawData.title,
+          summary: rawData.summary || rawData.resume_summary || rawData.profile_summary,
+          skills: Array.isArray(rawData.skills) && rawData.skills.length > 0
+            ? rawData.skills
+            : (Array.isArray(rawData.programming_languages) && rawData.programming_languages.length > 0
+                ? rawData.programming_languages
+                : (typeof rawData.skills === 'string' ? rawData.skills.split(',').map(s => s.trim()).filter(Boolean) : (rawData.technical_skills || []))),
+          currentTitle: rawData.currentTitle || rawData.current_title || rawData.designation || rawData.role || rawData.internships?.[0]?.role,
+          currentCompany: rawData.currentCompany || rawData.current_company || rawData.company || rawData.internships?.[0]?.company,
+          experienceYears: rawData.experienceYears || rawData.experience_years || rawData.total_experience_years,
+          institution: rawData.institution || rawData.university || rawData.college || firstEdu?.institution,
+          degree: rawData.degree || (typeof rawData.education === 'string' ? rawData.education : null) || firstEdu?.degree || rawData.qualification,
+          fieldOfStudy: rawData.fieldOfStudy || rawData.field_of_study || rawData.major || firstEdu?.field_of_study,
+          graduationYear: rawData.graduationYear || rawData.graduation_year || firstEdu?.end_date,
+          grade: rawData.grade || rawData.gpa || rawData.cgpa || firstEdu?.grade,
+          projectName: rawData.projectName || rawData.project_name || rawData.projects?.[0]?.name,
+          projectRole: rawData.projectRole || rawData.project_role || rawData.projects?.[0]?.role,
+          projectDesc: rawData.projectDesc || rawData.project_desc || rawData.projects?.[0]?.description,
+          targetRole: rawData.targetRole || rawData.target_role || rawData.track_id,
+          linkedinUrl: rawData.linkedinUrl || rawData.linkedin_url || rawData.linkedin,
+          portfolioUrl: rawData.portfolioUrl || rawData.portfolio_url || rawData.github
+        };
+      }
+
+      setIsParsing(false);
+      const autoMap = {};
+
+      setFormData(prev => {
+        const updated = { ...prev, resumeFileName: file.name };
+
+        if (parsed.fullName) {
+          updated.fullName = parsed.fullName;
+          autoMap.fullName = true;
+        }
+        if (parsed.email) {
+          updated.email = parsed.email;
+          autoMap.email = true;
+        }
+        if (parsed.mobile) {
+          updated.mobile = parsed.mobile;
+          autoMap.mobile = true;
+        }
+        if (parsed.location) {
+          updated.location = parsed.location;
+          autoMap.location = true;
+        }
+        if (parsed.headline) {
+          updated.headline = parsed.headline;
+          autoMap.headline = true;
+        }
+        if (parsed.summary) {
+          updated.summary = parsed.summary;
+          autoMap.summary = true;
+        }
+        if (parsed.skills && parsed.skills.length > 0) {
+          const existingSkills = Array.isArray(prev.skills) ? prev.skills : [];
+          const merged = Array.from(new Set([...existingSkills, ...parsed.skills]));
+          updated.skills = merged;
+          autoMap.skills = true;
+        }
+        if (parsed.currentTitle) {
+          updated.currentTitle = parsed.currentTitle;
+          autoMap.currentTitle = true;
+        }
+        if (parsed.currentCompany) {
+          updated.currentCompany = parsed.currentCompany;
+          autoMap.currentCompany = true;
+        }
+        if (parsed.experienceYears) {
+          updated.experienceYears = parsed.experienceYears;
+          autoMap.experienceYears = true;
+        }
+        if (parsed.institution) {
+          updated.institution = parsed.institution;
+          autoMap.institution = true;
+        }
+        if (parsed.degree) {
+          updated.degree = parsed.degree;
+          autoMap.degree = true;
+        }
+        if (parsed.fieldOfStudy) {
+          updated.fieldOfStudy = parsed.fieldOfStudy;
+          autoMap.fieldOfStudy = true;
+        }
+        if (parsed.graduationYear) {
+          updated.graduationYear = parsed.graduationYear;
+          autoMap.graduationYear = true;
+        }
+        if (parsed.grade) {
+          updated.grade = parsed.grade;
+          autoMap.grade = true;
+        }
+        if (parsed.projectName) {
+          updated.projectName = parsed.projectName;
+          autoMap.projectName = true;
+        }
+        if (parsed.projectRole) {
+          updated.projectRole = parsed.projectRole;
+          autoMap.projectRole = true;
+        }
+        if (parsed.projectDesc) {
+          updated.projectDesc = parsed.projectDesc;
+          autoMap.projectDesc = true;
+        }
+        if (parsed.targetRole) {
+          updated.targetRole = parsed.targetRole;
+          autoMap.targetRole = true;
+        }
+        if (parsed.linkedinUrl) {
+          updated.linkedinUrl = parsed.linkedinUrl;
+          autoMap.linkedinUrl = true;
+        }
+        if (parsed.portfolioUrl) {
+          updated.portfolioUrl = parsed.portfolioUrl;
+          autoMap.portfolioUrl = true;
+        }
+
+        return updated;
+      });
+
+      setAutoFilledFields(autoMap);
+      setParseSuccessToast({
+        fileName: file.name,
+        skillsCount: parsed.skills?.length || 0,
+        name: parsed.fullName || 'Candidate'
+      });
 
       setTimeout(() => {
-        setIsParsing(false);
-        const autoMap = {};
-
-        setFormData(prev => {
-          const updated = { ...prev, resumeFileName: file.name };
-
-          if (parsed.fullName) {
-            updated.fullName = parsed.fullName;
-            autoMap.fullName = true;
-          }
-          if (parsed.email) {
-            updated.email = parsed.email;
-            autoMap.email = true;
-          }
-          if (parsed.mobile) {
-            updated.mobile = parsed.mobile;
-            autoMap.mobile = true;
-          }
-          if (parsed.location) {
-            updated.location = parsed.location;
-            autoMap.location = true;
-          }
-          if (parsed.headline) {
-            updated.headline = parsed.headline;
-            autoMap.headline = true;
-          }
-          if (parsed.summary) {
-            updated.summary = parsed.summary;
-            autoMap.summary = true;
-          }
-          if (parsed.skills && parsed.skills.length > 0) {
-            const existingSkills = Array.isArray(prev.skills) ? prev.skills : [];
-            const merged = Array.from(new Set([...existingSkills, ...parsed.skills]));
-            updated.skills = merged;
-            autoMap.skills = true;
-          }
-          if (parsed.currentTitle) {
-            updated.currentTitle = parsed.currentTitle;
-            autoMap.currentTitle = true;
-          }
-          if (parsed.currentCompany) {
-            updated.currentCompany = parsed.currentCompany;
-            autoMap.currentCompany = true;
-          }
-          if (parsed.experienceYears) {
-            updated.experienceYears = parsed.experienceYears;
-            autoMap.experienceYears = true;
-          }
-          if (parsed.institution) {
-            updated.institution = parsed.institution;
-            autoMap.institution = true;
-          }
-          if (parsed.degree) {
-            updated.degree = parsed.degree;
-            autoMap.degree = true;
-          }
-          if (parsed.fieldOfStudy) {
-            updated.fieldOfStudy = parsed.fieldOfStudy;
-            autoMap.fieldOfStudy = true;
-          }
-          if (parsed.graduationYear) {
-            updated.graduationYear = parsed.graduationYear;
-            autoMap.graduationYear = true;
-          }
-          if (parsed.grade) {
-            updated.grade = parsed.grade;
-            autoMap.grade = true;
-          }
-          if (parsed.projectName) {
-            updated.projectName = parsed.projectName;
-            autoMap.projectName = true;
-          }
-          if (parsed.projectRole) {
-            updated.projectRole = parsed.projectRole;
-            autoMap.projectRole = true;
-          }
-          if (parsed.targetRole) {
-            updated.targetRole = parsed.targetRole;
-            autoMap.targetRole = true;
-          }
-
-          return updated;
-        });
-
-        setAutoFilledFields(autoMap);
-        setParseSuccessToast({
-          fileName: file.name,
-          skillsCount: parsed.skills?.length || 0,
-          name: parsed.fullName
-        });
-
-        setTimeout(() => {
-          setParseSuccessToast(null);
-        }, 8000);
-      }, 1200);
+        setParseSuccessToast(null);
+      }, 8000);
 
     } catch (err) {
       console.error('Error parsing resume:', err);
       setIsParsing(false);
+      alert(`Resume parsing failed: ${err.message || 'Unable to parse resume file'}`);
       setFormData(prev => ({
         ...prev,
         resumeFileName: file.name
@@ -363,6 +499,7 @@ const CandidateProfileWizard = () => {
   const completeness = calculateCompleteness();
 
   const handleSubmitProfile = async () => {
+    setIsSaving(true);
     const skillsList = Array.isArray(formData.skills)
       ? formData.skills
       : (typeof formData.skills === 'string' ? formData.skills.split(',').map(s => s.trim()).filter(Boolean) : []);
@@ -375,16 +512,73 @@ const CandidateProfileWizard = () => {
     localStorage.setItem(profileFrozenKey, 'true');
     localStorage.setItem(profileDataKey, JSON.stringify(payload));
 
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('fairhire_profile_updated', {
-        detail: { isFrozen: true, formData: payload }
-      }));
+    if (isMockMode()) {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('fairhire_profile_updated', {
+          detail: { isFrozen: true, formData: payload }
+        }));
+      }
+      setIsSaving(false);
+      setSaveSuccessToast(true);
+      setTimeout(() => {
+        setSaveSuccessToast(false);
+      }, 4000);
+      return;
     }
 
-    setSaveSuccessToast(true);
-    setTimeout(() => {
-      setSaveSuccessToast(false);
-    }, 4000);
+    // LIVE mode: dispatch to candidateApi.applyCandidate -> callCandidateWebhook -> Supabase
+    try {
+      // Derive a valid Supabase track_id from the candidate's target role.
+      // job_tracks table uses 'WEB', 'DATA', 'ADVANCED' as primary track identifiers.
+      const resolveTrackId = (role = '') => {
+        const r = (role || '').toLowerCase();
+        if (r.includes('data') || r.includes('cloud') || r.includes('infra') || r.includes('devops') || r.includes('database') || r.includes('backend')) return 'DATA';
+        if (r.includes('ai') || r.includes('ml') || r.includes('machine') || r.includes('nlp') || r.includes('advanced') || r.includes('blockchain') || r.includes('security')) return 'ADVANCED';
+        return 'WEB'; // Frontend, Full-stack, Mobile, general engineering
+      };
+
+      const candidatePayload = {
+        candidateId: activeCandidateId,
+        trackId: resolveTrackId(formData.targetRole || formData.preferredRole),
+        fullName: formData.fullName,
+        email: formData.email,
+        mobile: formData.mobile,
+        location: formData.location,
+        skills: skillsList,
+        degree: formData.degree,
+        fieldOfStudy: formData.fieldOfStudy,
+        institution: formData.institution,
+        graduationYear: formData.graduationYear,
+        experience: formData.experienceYears,
+        experienceYears: formData.experienceYears,
+        targetRole: formData.targetRole || formData.preferredRole,
+        summary: formData.summary || formData.headline,
+        linkedin: formData.linkedinUrl,
+        github: formData.portfolioUrl,
+      };
+
+      const res = await candidateApi.applyCandidate(candidatePayload);
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('fairhire_profile_updated', {
+          detail: { isFrozen: true, formData: payload }
+        }));
+      }
+
+      setIsSaving(false);
+      if (res.success) {
+        setSaveSuccessToast(true);
+        setTimeout(() => {
+          setSaveSuccessToast(false);
+        }, 4000);
+      } else {
+        alert(res.message || 'Failed to save profile changes to live candidate workflow.');
+      }
+    } catch (err) {
+      console.error('[FairHire] Failed to save candidate profile:', err);
+      setIsSaving(false);
+      alert(err.message || 'Failed to connect to candidate workflow service.');
+    }
   };
 
   const scrollToSection = (id) => {
@@ -1080,10 +1274,11 @@ const CandidateProfileWizard = () => {
               <button
                 type="button"
                 onClick={handleSubmitProfile}
-                className="flex-1 sm:flex-none px-8 py-3 rounded-full bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-bold text-sm shadow-md shadow-blue-500/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                disabled={isSaving}
+                className="flex-1 sm:flex-none px-8 py-3 rounded-full bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-bold text-sm shadow-md shadow-blue-500/30 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
               >
-                <Save className="w-4 h-4" />
-                Save Profile Changes
+                {isSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {isSaving ? 'Saving Changes...' : 'Save Profile Changes'}
               </button>
             </div>
           </div>
