@@ -7,6 +7,7 @@ import {
 } from '../services/authService';
 import { supabase } from '../services/supabaseClient';
 import { ROLES } from '../utils/constants';
+import { clearUserApplications } from '../services/applicationStore';
 
 export const AuthContext = createContext();
 
@@ -299,6 +300,9 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     try {
+      // Clear this user's per-user application store BEFORE clearing auth
+      // so the userId can still be resolved from storage during cleanup
+      clearUserApplications();
       await supabase.auth.signOut();
     } catch (e) {}
     setUser(null);
