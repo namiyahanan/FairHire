@@ -107,10 +107,11 @@ const AiAptitudeAssessment = ({
   const [startTime] = useState(() => Date.now());
 
   // ── fullscreen / proctoring state ────────────────────────────────────────────
+  // ── proctoring state ──────────────────────────────────────────────────────────
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [fullscreenWarning, setFullscreenWarning] = useState(false);
   const [fullscreenExitCount, setFullscreenExitCount] = useState(0);
   const [launchError, setLaunchError] = useState('');
+  const [forceExitInfo, setForceExitInfo] = useState(null);
 
   // ── guidelines checklist (all must be checked) ───────────────────────────────
   const [agreedGuidelines, setAgreedGuidelines] = useState(false);
@@ -122,6 +123,8 @@ const AiAptitudeAssessment = ({
   currentIndexRef.current = currentIndex;
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
+  const hasEnteredFullscreenRef = useRef(false);
+  const isSubmittingRef = useRef(false);
 
   const currentQuestion = questions[currentIndex];
   const selectedOption = answers[currentQuestion?.question_id];
@@ -129,27 +132,88 @@ const AiAptitudeAssessment = ({
   // ref for the fullscreen exam container
   const examContainerRef = useRef(null);
 
+  // ── submit assessment handler (supports force termination on Esc/fullscreen exit) ──
+  const handleSubmitAssessment = useCallback((exitReason = '') => {
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+
+    const currentAnswers = answersRef.current;
+    const totalTimeSpentSeconds = Math.round((Date.now() - startTime) / 1000);
+    const qNum = currentIndexRef.current + 1;
+
+    // exit fullscreen on submit if still active
+    const fsEl = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement;
+    if (fsEl) {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen().catch(() => {});
+      }
+    }
+
+    if (exitReason) {
+      setForceExitInfo({
+        reason: exitReason,
+        questionNumber: qNum,
+        totalQuestions
+      });
+    }
+
+    setPhase('submitted');
+
+    if (onComplete) {
+      const formattedAnswers = questions.map(q => ({
+        question_id: q.question_id,
+        selected_answer: currentAnswers[q.question_id] || ''
+      }));
+
+      onComplete({
+        assessmentId,
+        candidateId,
+        answers: formattedAnswers,
+        rawAnswers: currentAnswers,
+        totalQuestions,
+        timeSpentSeconds: totalTimeSpentSeconds,
+        fullscreenExits: fullscreenExitCount + (exitReason ? 1 : 0),
+        forcedExit: !!exitReason,
+        terminatedAtQuestion: exitReason ? qNum : undefined,
+        forcedReason: exitReason || undefined,
+        feedback: exitReason
+          ? `Proctoring Enforcement: Candidate exited fullscreen (Esc pressed) at question ${qNum} of ${totalQuestions}. Exam immediately terminated and force-submitted.`
+          : `Candidate completed ${totalQuestions}-question AI Aptitude Assessment.`
+      });
+    }
+  }, [assessmentId, candidateId, questions, totalQuestions, startTime, fullscreenExitCount, onComplete]);
+
+  const handleSubmitAssessmentRef = useRef(handleSubmitAssessment);
+  handleSubmitAssessmentRef.current = handleSubmitAssessment;
+
   // ── fullscreen API ──────────────────────────────────────────────────────────
   const launchProctoredExam = useCallback(() => {
     // Switch to active phase first so the exam container renders
     setPhase('active');
-    setFullscreenWarning(false);
+    hasEnteredFullscreenRef.current = false;
+    isSubmittingRef.current = false;
+    setForceExitInfo(null);
 
     // Then attempt fullscreen on the exam overlay container (after next render)
     setTimeout(() => {
       const el = examContainerRef.current || document.documentElement;
       if (el && el.requestFullscreen) {
         el.requestFullscreen()
-          .then(() => setIsFullscreen(true))
+          .then(() => {
+            setIsFullscreen(true);
+            hasEnteredFullscreenRef.current = true;
+          })
           .catch(() => {
-            // Fullscreen denied — continue exam in windowed mode, just flag it
+            // Fullscreen denied — continue in windowed overlay mode
             setIsFullscreen(false);
           });
       }
     }, 50);
   }, []);
 
-  // detect fullscreen exit
+  // detect fullscreen exit & Esc key during active exam -> force terminate immediately
   useEffect(() => {
     const handleFullscreenChange = () => {
       const inFullscreen = !!(
@@ -159,30 +223,33 @@ const AiAptitudeAssessment = ({
       );
       setIsFullscreen(inFullscreen);
 
-      if (!inFullscreen && phaseRef.current === 'active') {
-        setFullscreenWarning(true);
-        setFullscreenExitCount(prev => prev + 1);
+      if (inFullscreen) {
+        hasEnteredFullscreenRef.current = true;
+      } else if (phaseRef.current === 'active' && hasEnteredFullscreenRef.current && !isSubmittingRef.current) {
+        // Exited fullscreen during active exam -> force complete test at exact question!
+        handleSubmitAssessmentRef.current('Fullscreen exited (Esc pressed)');
+      }
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && phaseRef.current === 'active' && !isSubmittingRef.current) {
+        // Escape pressed during active exam -> force complete test immediately!
+        handleSubmitAssessmentRef.current('Escape key pressed during exam');
       }
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
     document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    window.addEventListener('keydown', handleKeyDown, true);
 
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
       document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+      window.removeEventListener('keydown', handleKeyDown, true);
     };
   }, []);
-
-  // re-enter fullscreen handler
-  const reEnterFullscreen = () => {
-    document.documentElement.requestFullscreen().then(() => {
-      setIsFullscreen(true);
-      setFullscreenWarning(false);
-    }).catch(() => {});
-  };
 
   // ── question timer ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -225,36 +292,6 @@ const AiAptitudeAssessment = ({
       handleSubmitAssessment();
     }
   };
-
-  const handleSubmitAssessment = useCallback(() => {
-    const currentAnswers = answersRef.current;
-    const totalTimeSpentSeconds = Math.round((Date.now() - startTime) / 1000);
-
-    // exit fullscreen on submit
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    }
-
-    setPhase('submitted');
-
-    if (onComplete) {
-      const formattedAnswers = questions.map(q => ({
-        question_id: q.question_id,
-        selected_answer: currentAnswers[q.question_id] || ''
-      }));
-
-      onComplete({
-        assessmentId,
-        candidateId,
-        answers: formattedAnswers,
-        rawAnswers: currentAnswers,
-        totalQuestions,
-        timeSpentSeconds: totalTimeSpentSeconds,
-        fullscreenExits: fullscreenExitCount,
-        feedback: `Candidate completed ${totalQuestions}-question AI Aptitude Assessment.`
-      });
-    }
-  }, [assessmentId, candidateId, questions, totalQuestions, startTime, fullscreenExitCount, onComplete]);
 
   // ── derived ─────────────────────────────────────────────────────────────────
   const progressPercent = totalQuestions > 0 ? Math.round(((currentIndex + 1) / totalQuestions) * 100) : 0;
@@ -310,20 +347,43 @@ const AiAptitudeAssessment = ({
   if (phase === 'submitted') {
     return (
       <div className="p-6 sm:p-10 text-center space-y-6 animate-in fade-in zoom-in-95 duration-300">
-        <div className="w-20 h-20 rounded-3xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center mx-auto shadow-sm">
-          <CheckCircle2 className="w-10 h-10" />
-        </div>
+        {forceExitInfo ? (
+          <div className="w-20 h-20 rounded-3xl bg-amber-50 text-amber-600 border-2 border-amber-300 flex items-center justify-center mx-auto shadow-sm">
+            <AlertTriangle className="w-10 h-10 text-amber-600" />
+          </div>
+        ) : (
+          <div className="w-20 h-20 rounded-3xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center mx-auto shadow-sm">
+            <CheckCircle2 className="w-10 h-10" />
+          </div>
+        )}
 
         <div className="space-y-2 max-w-md mx-auto">
-          <span className="text-[11px] font-black uppercase tracking-widest text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
-            Assessment Submitted
-          </span>
-          <h3 className="text-xl sm:text-2xl font-black text-navy-900 tracking-tight">
-            Aptitude Assessment Recorded
-          </h3>
-          <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-            Your responses for all <strong className="text-navy-900">{totalQuestions} technical aptitude questions</strong> have been cryptographically sealed and transmitted directly to the HR evaluation committee.
-          </p>
+          {forceExitInfo ? (
+            <>
+              <span className="text-[11px] font-black uppercase tracking-widest text-amber-800 bg-amber-50 px-3 py-1 rounded-full border border-amber-300 inline-flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                Assessment Force-Ended · Proctoring Policy
+              </span>
+              <h3 className="text-xl sm:text-2xl font-black text-navy-900 tracking-tight">
+                Exam Terminated at Question {forceExitInfo.questionNumber} of {forceExitInfo.totalQuestions}
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                You exited fullscreen mode (Esc key pressed). Per FairHire proctoring regulations, the test was locked and immediately force-submitted at question <strong>{forceExitInfo.questionNumber}</strong>. Responses recorded up to this point have been submitted to HR.
+              </p>
+            </>
+          ) : (
+            <>
+              <span className="text-[11px] font-black uppercase tracking-widest text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
+                Assessment Submitted
+              </span>
+              <h3 className="text-xl sm:text-2xl font-black text-navy-900 tracking-tight">
+                Aptitude Assessment Recorded
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                Your responses for all <strong className="text-navy-900">{totalQuestions} technical aptitude questions</strong> have been cryptographically sealed and transmitted directly to the HR evaluation committee.
+              </p>
+            </>
+          )}
         </div>
 
         {/* Blind Screening & Confidentiality */}
@@ -333,11 +393,15 @@ const AiAptitudeAssessment = ({
             <span>FairHire Blind Screening Confidentiality Protocol</span>
           </div>
           <p className="text-xs text-slate-500 leading-relaxed">
-            To ensure zero demographic bias and objective review, raw aptitude scores and question breakdowns are restricted to the <strong>HR recruiter & evaluating engineering panel</strong>. You will receive transparent milestone notifications in your Application Tracker.
+            {forceExitInfo
+              ? 'Early termination proctoring log and responses answered prior to exit have been restricted and sealed for the evaluating HR engineering panel.'
+              : 'To ensure zero demographic bias and objective review, raw aptitude scores and question breakdowns are restricted to the HR recruiter & evaluating engineering panel. You will receive transparent milestone notifications in your Application Tracker.'}
           </p>
           <div className="pt-2 border-t border-slate-200 flex items-center justify-between text-[11px] text-slate-500">
             <span>Candidate Token: <strong className="text-teal-700 font-mono">{candidateId}-EEOC</strong></span>
-            <span className="text-emerald-700 font-bold">✓ Delivered to HR Dashboard</span>
+            <span className={forceExitInfo ? 'text-amber-700 font-bold' : 'text-emerald-700 font-bold'}>
+              {forceExitInfo ? '⚠ Terminated & Transmitted to HR' : '✓ Delivered to HR Dashboard'}
+            </span>
           </div>
         </div>
 
@@ -358,8 +422,8 @@ const AiAptitudeAssessment = ({
       {
         icon: <Monitor className="w-5 h-5 text-indigo-600" />,
         color: 'bg-indigo-50 border-indigo-200',
-        title: 'Fullscreen Mode Required',
-        desc: 'The assessment runs in locked fullscreen. Exiting fullscreen (e.g. pressing Esc) is detected and flagged to the HR panel.'
+        title: 'Fullscreen Mode Strictly Enforced',
+        desc: 'The assessment runs in locked fullscreen. Pressing Esc or exiting fullscreen will immediately end and force-submit your test at the current question.'
       },
       {
         icon: <Clock className="w-5 h-5 text-amber-600" />,
@@ -382,8 +446,8 @@ const AiAptitudeAssessment = ({
       {
         icon: <AlertTriangle className="w-5 h-5 text-orange-600" />,
         color: 'bg-orange-50 border-orange-200',
-        title: 'No Tab Switching / No Refresh',
-        desc: 'Any attempt to switch tabs, refresh the page, or leave the assessment will be flagged. Complete the assessment in one uninterrupted session.'
+        title: 'No Tab Switching / No Esc',
+        desc: 'Exiting fullscreen or switching tabs will immediately abort and force-submit your exam. Complete the assessment in one uninterrupted session.'
       },
       {
         icon: <Wifi className="w-5 h-5 text-slate-600" />,
@@ -467,7 +531,7 @@ const AiAptitudeAssessment = ({
               {agreedGuidelines && <Check className="w-3.5 h-3.5" />}
             </div>
             <span className="text-xs text-slate-700 leading-relaxed">
-              I have read and understood the assessment guidelines. I agree to complete this assessment honestly in a single session with fullscreen mode enabled. I understand that my score is confidential and only visible to the HR team.
+              I have read and understood the assessment guidelines. I understand that pressing Esc or exiting fullscreen will immediately end and force-submit my exam at the exact question I am on. I agree to complete this assessment honestly in a single session with fullscreen mode enabled.
             </span>
           </label>
         </div>
@@ -517,31 +581,6 @@ const AiAptitudeAssessment = ({
     >
       {/* inner scrollable exam area */}
       <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-8 sm:py-8 max-w-3xl mx-auto w-full space-y-5">
-      {/* ── FULLSCREEN EXIT WARNING BANNER ──────────────────────────────────── */}
-      {fullscreenWarning && (
-        <div className="fixed top-0 left-0 right-0 z-[9999] bg-rose-600 text-white px-6 py-4 flex items-center justify-between gap-4 shadow-2xl animate-in slide-in-from-top duration-300">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-              <AlertTriangle className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <p className="font-black text-sm">⚠️ Fullscreen Exited — Proctoring Alert</p>
-              <p className="text-xs text-rose-100 mt-0.5">
-                You exited fullscreen mode. This has been flagged to the HR panel. Please return to fullscreen immediately to continue your assessment.
-                {fullscreenExitCount > 1 && ` (Exit count: ${fullscreenExitCount})`}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={reEnterFullscreen}
-            className="shrink-0 px-4 py-2 rounded-xl bg-white text-rose-700 text-xs font-black hover:bg-rose-50 transition-all cursor-pointer"
-          >
-            Return to Fullscreen
-          </button>
-        </div>
-      )}
-
       {/* ── EXAM TOP HEADER BAR ──────────────────────────────────────────────── */}
       <div className="space-y-3 pb-4 border-b border-slate-700">
         <div className="flex items-center justify-between gap-4">

@@ -305,7 +305,9 @@ const ApplicationStatus = () => {
       setShowAssessmentModal(false);
       const roundName = updated.rounds?.[roundIdx]?.name || `Round ${roundIdx + 1}`;
       setAssessmentCompletedSuccess(
-        `✓ Assessment for "${roundName}" completed and securely delivered to HR! Results are now on the HR dashboard.`
+        submissionData?.forcedExit
+          ? `⚠️ Assessment for "${roundName}" ended early at Question ${submissionData.terminatedAtQuestion || ''} (fullscreen exited). Responses recorded and delivered to HR.`
+          : `✓ Assessment for "${roundName}" completed and securely delivered to HR! Results are now on the HR dashboard.`
       );
       setTimeout(() => setAssessmentCompletedSuccess(null), 7000);
     }, 400);
