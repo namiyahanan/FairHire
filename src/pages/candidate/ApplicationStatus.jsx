@@ -77,6 +77,8 @@ const ApplicationStatus = () => {
   const [assessmentStarting, setAssessmentStarting] = useState(false);
   const [assessmentStartError, setAssessmentStartError] = useState(null);
   const [assessmentAlreadyDone, setAssessmentAlreadyDone] = useState(false);
+  // Track which round the 'already done' flag applies to, so advancing to the next round resets it
+  const [assessmentDoneForRoundIdx, setAssessmentDoneForRoundIdx] = useState(null);
 
   // Sync candidate hiring store in real-time
   useEffect(() => {
@@ -102,6 +104,17 @@ const ApplicationStatus = () => {
       window.removeEventListener('storage', handleHiringUpdate);
     };
   }, [user?.id]);
+
+  // Reset per-round assessment state whenever the active round index advances
+  useEffect(() => {
+    const currentRoundIdx = candidateHiring?.currentRoundIndex ?? 0;
+    if (assessmentDoneForRoundIdx !== null && currentRoundIdx !== assessmentDoneForRoundIdx) {
+      // Round has advanced — clear the "already done" flag for the new round
+      setAssessmentAlreadyDone(false);
+      setAssessmentId(null);
+      setAssessmentStartError(null);
+    }
+  }, [candidateHiring?.currentRoundIndex, assessmentDoneForRoundIdx]);
 
   // Load applications:
   //   mock mode  → applicationStore (localStorage)
@@ -199,7 +212,7 @@ const ApplicationStatus = () => {
     setActiveStageTab(candidateHiring?.stage || 'Review');
   };
 
-  // Assessment start handler: resolves a valid UUID from webhook or DB, enforces single attempt
+  // Assessment start handler: resolves a valid UUID from webhook or DB, enforces single attempt per round
   const handleStartAssessment = async () => {
     if (assessmentStarting) return;
 
@@ -215,6 +228,14 @@ const ApplicationStatus = () => {
       return;
     }
 
+    const currentRoundIdx = candidateHiring?.currentRoundIndex ?? 0;
+
+    // If already done, only block if it's the SAME round
+    if (assessmentAlreadyDone && assessmentDoneForRoundIdx === currentRoundIdx) {
+      setAssessmentStartError('You have already completed this assessment. Only one attempt is permitted per round.');
+      return;
+    }
+
     setAssessmentStarting(true);
     setAssessmentStartError(null);
 
@@ -223,6 +244,7 @@ const ApplicationStatus = () => {
       const existing = await checkCandidateAssessmentResult(candId, trackId);
       if (existing) {
         setAssessmentAlreadyDone(true);
+        setAssessmentDoneForRoundIdx(currentRoundIdx);
         setAssessmentStartError('You have already completed this assessment. Only one attempt is permitted per application.');
         return;
       }
@@ -255,7 +277,9 @@ const ApplicationStatus = () => {
         timeSpentSeconds: submissionData.timeSpentSeconds
       });
       console.log('[FairHire] Assessment persisted to DB:', dbRes?.assessment_id, 'Score:', dbRes?.percentage + '%');
+      const completedRoundIdx = candidateHiring?.currentRoundIndex ?? 0;
       setAssessmentAlreadyDone(true);
+      setAssessmentDoneForRoundIdx(completedRoundIdx);
     } catch (dbErr) {
       console.error('[FairHire] Supabase assessment persist error:', dbErr);
     }

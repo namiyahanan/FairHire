@@ -126,18 +126,27 @@ const AiAptitudeAssessment = ({
   const currentQuestion = questions[currentIndex];
   const selectedOption = answers[currentQuestion?.question_id];
 
+  // ref for the fullscreen exam container
+  const examContainerRef = useRef(null);
+
   // ── fullscreen API ──────────────────────────────────────────────────────────
   const launchProctoredExam = useCallback(() => {
-    const examElement = document.documentElement;
-    examElement.requestFullscreen()
-      .then(() => {
-        setIsFullscreen(true);
-        setFullscreenWarning(false);
-        setPhase('active');
-      })
-      .catch(() => {
-        setLaunchError('You must allow fullscreen mode to take this proctored assessment. Please click "Start Assessment" again and allow fullscreen when prompted by your browser.');
-      });
+    // Switch to active phase first so the exam container renders
+    setPhase('active');
+    setFullscreenWarning(false);
+
+    // Then attempt fullscreen on the exam overlay container (after next render)
+    setTimeout(() => {
+      const el = examContainerRef.current || document.documentElement;
+      if (el && el.requestFullscreen) {
+        el.requestFullscreen()
+          .then(() => setIsFullscreen(true))
+          .catch(() => {
+            // Fullscreen denied — continue exam in windowed mode, just flag it
+            setIsFullscreen(false);
+          });
+      }
+    }, 50);
   }, []);
 
   // detect fullscreen exit
@@ -498,11 +507,16 @@ const AiAptitudeAssessment = ({
   }
 
   // ============================================================================
-  // PHASE: ACTIVE EXAM (fullscreen, timed questions)
+  // PHASE: ACTIVE EXAM — renders as a fixed full-screen overlay with dark bg
   // ============================================================================
   return (
-    <div className="space-y-5 relative">
-
+    <div
+      ref={examContainerRef}
+      className="fixed inset-0 z-[99999] bg-[#0a0f1e] flex flex-col overflow-hidden"
+      style={{ fontFamily: 'Inter, system-ui, sans-serif' }}
+    >
+      {/* inner scrollable exam area */}
+      <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-8 sm:py-8 max-w-3xl mx-auto w-full space-y-5">
       {/* ── FULLSCREEN EXIT WARNING BANNER ──────────────────────────────────── */}
       {fullscreenWarning && (
         <div className="fixed top-0 left-0 right-0 z-[9999] bg-rose-600 text-white px-6 py-4 flex items-center justify-between gap-4 shadow-2xl animate-in slide-in-from-top duration-300">
@@ -529,23 +543,23 @@ const AiAptitudeAssessment = ({
       )}
 
       {/* ── EXAM TOP HEADER BAR ──────────────────────────────────────────────── */}
-      <div className="space-y-3 pb-4 border-b border-slate-100">
+      <div className="space-y-3 pb-4 border-b border-slate-700">
         <div className="flex items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[10px] font-black uppercase tracking-wider text-teal-800 bg-teal-50 border border-teal-200 px-2.5 py-0.5 rounded-full">
+              <span className="text-[10px] font-black uppercase tracking-wider text-teal-300 bg-teal-900/40 border border-teal-700 px-2.5 py-0.5 rounded-full">
                 Question {currentIndex + 1} of {totalQuestions}
               </span>
               <span className="text-xs text-slate-400 font-medium">
                 • {currentQuestion?.category || currentQuestion?.topic || 'Aptitude'}
               </span>
               {!isFullscreen && (
-                <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full animate-pulse">
-                  ⚠ Fullscreen Off
+                <span className="text-[10px] font-bold text-rose-300 bg-rose-900/30 border border-rose-700 px-2 py-0.5 rounded-full animate-pulse">
+                  ⚠ Windowed Mode
                 </span>
               )}
             </div>
-            <h4 className="text-sm sm:text-base font-extrabold text-navy-900 mt-1">
+            <h4 className="text-sm sm:text-base font-extrabold text-white mt-1">
               AI Technical Aptitude Assessment — {roleTitle}
             </h4>
           </div>
@@ -568,7 +582,7 @@ const AiAptitudeAssessment = ({
             <span>Progress: {currentIndex + 1}/{totalQuestions} questions</span>
             <span className="font-mono">{progressPercent}%</span>
           </div>
-          <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
+          <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-teal-500 to-emerald-500 transition-all duration-500 rounded-full"
               style={{ width: `${progressPercent}%` }}
@@ -585,17 +599,17 @@ const AiAptitudeAssessment = ({
         </div>
       )}
 
-      {/* ── QUESTION CARD ────────────────────────────────────────────────────── */}
-      <div className="p-5 sm:p-6 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+      {/* ── QUESTION CARD ───────────────────────────────────────────────────── */}
+      <div className="p-5 sm:p-6 rounded-2xl bg-slate-800/60 border border-slate-700 space-y-3">
         <div className="flex items-center gap-2">
-          <span className="w-6 h-6 rounded-lg bg-navy-900 text-white text-xs font-black flex items-center justify-center shrink-0">
+          <span className="w-6 h-6 rounded-lg bg-teal-600 text-white text-xs font-black flex items-center justify-center shrink-0">
             {currentIndex + 1}
           </span>
-          <span className="text-xs font-bold text-teal-700 bg-white px-2.5 py-0.5 rounded-lg border border-slate-200">
+          <span className="text-xs font-bold text-teal-300 bg-teal-900/40 px-2.5 py-0.5 rounded-lg border border-teal-700">
             {currentQuestion?.category || currentQuestion?.topic || 'General'}
           </span>
         </div>
-        <p className="text-sm sm:text-base font-bold text-navy-900 leading-relaxed">
+        <p className="text-sm sm:text-base font-bold text-white leading-relaxed">
           {currentQuestion?.question_text || currentQuestion?.question}
         </p>
       </div>
@@ -639,20 +653,21 @@ const AiAptitudeAssessment = ({
         })}
       </div>
 
-      {/* ── FOOTER ACTIONS ───────────────────────────────────────────────────── */}
-      <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
-        <span className="text-[11px] text-slate-400 font-medium">
-          ⏱️ Auto-advances in {timeLeft}s if unanswered
-        </span>
-        <Button
-          variant={isLastQuestion ? 'success' : 'gradient'}
-          size="md"
-          icon={isLastQuestion ? Send : ArrowRight}
-          onClick={handleNextQuestion}
-          className="shadow-sm"
-        >
-          {isLastQuestion ? 'Submit Assessment to HR' : 'Save & Next Question'}
-        </Button>
+        {/* ── FOOTER ACTIONS ─────────────────────────────────────────────────── */}
+        <div className="pt-4 border-t border-slate-700 flex items-center justify-between gap-3">
+          <span className="text-[11px] text-slate-400 font-medium">
+            ⏱️ Auto-advances in {timeLeft}s if unanswered
+          </span>
+          <Button
+            variant={isLastQuestion ? 'success' : 'gradient'}
+            size="md"
+            icon={isLastQuestion ? Send : ArrowRight}
+            onClick={handleNextQuestion}
+            className="shadow-sm"
+          >
+            {isLastQuestion ? 'Submit Assessment to HR' : 'Save & Next Question'}
+          </Button>
+        </div>
       </div>
     </div>
   );
