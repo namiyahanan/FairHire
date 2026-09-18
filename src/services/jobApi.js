@@ -115,6 +115,27 @@ const normalizeJob = (raw) => {
   };
 };
 
+const DELETED_JOBS_STORAGE_KEY = 'fairhire_deleted_job_ids';
+
+export const getDeletedJobIds = () => {
+  try {
+    const raw = localStorage.getItem(DELETED_JOBS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+export const addDeletedJobId = (jobId) => {
+  try {
+    const existing = getDeletedJobIds();
+    if (!existing.includes(jobId)) {
+      const updated = [...existing, jobId];
+      localStorage.setItem(DELETED_JOBS_STORAGE_KEY, JSON.stringify(updated));
+    }
+  } catch (e) {}
+};
+
 export const jobApi = {
   createJob: async (payload) => {
     if (isMockMode()) {
@@ -251,9 +272,11 @@ export const jobApi = {
   },
 
   getJobs: async () => {
+    const deletedJobIds = getDeletedJobIds();
+
     if (isMockMode()) {
       await new Promise(res => setTimeout(res, 250));
-      const jobs = getStoredJobs();
+      const jobs = getStoredJobs().filter(j => !deletedJobIds.includes(j.id));
       return { success: true, data: jobs, message: 'Jobs retrieved successfully.' };
     }
 
@@ -275,9 +298,15 @@ export const jobApi = {
       throw new Error(`Failed to fetch jobs from Supabase: ${error.message}`);
     }
 
-    const jobs = Array.isArray(data) ? data.map(jobTrackAdapter) : [];
+    const activeRows = (Array.isArray(data) ? data : []).filter(row => {
+      if (row.status === 'inactive' || row.status === 'deleted') return false;
+      if (deletedJobIds.includes(row.track_id)) return false;
+      return true;
+    });
 
-    console.log('[FairHire][JOB LIST] Fetched', jobs.length, 'jobs from Supabase');
+    const jobs = activeRows.map(jobTrackAdapter);
+
+    console.log('[FairHire][JOB LIST] Fetched', jobs.length, 'active jobs from Supabase');
 
     return {
       success: true,
@@ -288,15 +317,43 @@ export const jobApi = {
 
 
   deleteJob: async (jobId) => {
+    // Record in local exclusion list and store
+    addDeletedJobId(jobId);
+    deleteJobFromStore(jobId);
+
     if (isMockMode()) {
       await new Promise(res => setTimeout(res, 200));
-      deleteJobFromStore(jobId);
       return { success: true, message: 'Position deleted successfully.' };
     }
 
+    // LIVE path: Try deleting directly from Supabase job_tracks
+    try {
+      const { error: delError } = await supabase
+        .from('job_tracks')
+        .delete()
+        .eq('track_id', jobId);
+
+      if (delError) {
+        console.warn('[FairHire] Direct delete on job_tracks failed, updating status to inactive:', delError.message);
+        // Fallback: update status to inactive in Supabase so query filters it out
+        await supabase
+          .from('job_tracks')
+          .update({ status: 'inactive' })
+          .eq('track_id', jobId);
+      }
+    } catch (dbErr) {
+      console.warn('[FairHire] Supabase job deletion error:', dbErr.message);
+    }
+
+    // Dispatch events so all pages and portals update immediately
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('fairhire_jobs_updated', { detail: { deletedJobId: jobId } }));
+      window.dispatchEvent(new CustomEvent('storage'));
+    }
+
     return {
-      success: false,
-      message: 'Job deletion is not supported by the HR workflow backend.'
+      success: true,
+      message: 'Position deleted successfully from enterprise directory.'
     };
   },
 

@@ -1,17 +1,29 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DashboardLayout from '../../components/layout/DashboardLayout';
 import PageHeader from '../../components/layout/PageHeader';
 import JobCard from '../../components/jobs/JobCard';
 import Button from '../../components/common/Button';
 import Loader from '../../components/common/Loader';
+import Toast from '../../components/common/Toast';
 import { useJobs } from '../../hooks/useJobs';
 import { useCandidates } from '../../hooks/useCandidates';
 import { Briefcase, Users, UserCheck, Calendar, Sparkles, Award, Plus, ArrowRight } from 'lucide-react';
 
 const HRDashboard = () => {
-  const { jobs, fetchJobs, loading: jobsLoading } = useJobs();
+  const { jobs, fetchJobs, deleteJob, loading: jobsLoading } = useJobs();
   const { candidates, fetchCandidates, loading: candLoading } = useCandidates();
+  const [toastMessage, setToastMessage] = useState('');
+
+  const handleDeleteJob = async (jobId) => {
+    const res = await deleteJob(jobId);
+    if (res.success) {
+      setToastMessage(`✓ Position ${jobId} deleted successfully.`);
+      fetchJobs();
+    } else {
+      setToastMessage(`✕ ${res.message || 'Failed to delete position.'}`);
+    }
+  };
 
   useEffect(() => {
     fetchJobs();
@@ -93,12 +105,13 @@ const HRDashboard = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {jobs.slice(0, 3).map((job) => (
-              <JobCard key={job.id} job={job} />
+              <JobCard key={job.id} job={job} onDelete={handleDeleteJob} />
             ))}
           </div>
         )}
       </div>
 
+      <Toast message={toastMessage} onClose={() => setToastMessage('')} />
     </DashboardLayout>
   );
 };

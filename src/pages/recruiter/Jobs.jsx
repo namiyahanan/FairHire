@@ -17,6 +17,18 @@ const Jobs = () => {
 
   useEffect(() => {
     fetchJobs();
+
+    const handleUpdate = () => {
+      fetchJobs();
+    };
+
+    window.addEventListener('fairhire_jobs_updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+
+    return () => {
+      window.removeEventListener('fairhire_jobs_updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
   }, [fetchJobs]);
 
   const handleDeleteJob = async (jobId) => {
@@ -24,6 +36,8 @@ const Jobs = () => {
     if (res.success) {
       setToastMessage(`✓ Position ${jobId} deleted successfully from enterprise directory.`);
       fetchJobs();
+    } else {
+      setToastMessage(`✕ ${res.message || 'Failed to delete position.'}`);
     }
   };
 
