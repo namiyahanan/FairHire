@@ -167,7 +167,9 @@ export const getAppliedApplications = () => {
     ...app,
     company: app.company || companyName,
     companyInitial: app.companyInitial || 'FH',
-    companyBg: app.companyBg || 'bg-teal-600'
+    companyBg: app.companyBg || 'bg-teal-600',
+    trackId: app.trackId || app.jobId || '',
+    jobId: app.jobId || app.trackId || app.id
   });
 
   const STORAGE_KEY = userStorageKey();
@@ -192,11 +194,48 @@ export const getAppliedApplications = () => {
       return parsed.map(normalizeApp);
     }
 
-    // For ALL real users: start empty — never seed demo data
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map(normalizeApp);
+    // Collect applications across user-scoped storage, base storage, and related candidate keys
+    const collected = [];
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) collected.push(...parsed);
+      } catch {}
+    }
+
+    const baseRaw = localStorage.getItem(BASE_STORAGE_KEY);
+    if (baseRaw) {
+      try {
+        const parsedBase = JSON.parse(baseRaw);
+        if (Array.isArray(parsedBase)) collected.push(...parsedBase);
+      } catch {}
+    }
+
+    // Scan any other candidate application keys created across logins
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(BASE_STORAGE_KEY) && k !== STORAGE_KEY && k !== BASE_STORAGE_KEY && !k.startsWith(BASE_VER_KEY)) {
+          try {
+            const extra = JSON.parse(localStorage.getItem(k));
+            if (Array.isArray(extra)) collected.push(...extra);
+          } catch {}
+        }
+      }
+    } catch {}
+
+    // Deduplicate by jobId/trackId
+    const deduplicated = [];
+    const seen = new Set();
+    for (const app of collected) {
+      const key = String(app.jobId || app.trackId || app.id || '').trim().toLowerCase();
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        deduplicated.push(normalizeApp(app));
+      }
+    }
+
+    return deduplicated;
   } catch (e) {
     console.error('[FairHire] Error reading applications from localStorage', e);
     return [];
@@ -206,7 +245,7 @@ export const getAppliedApplications = () => {
 // --------------------------------------------------------------------------
 export const isJobAlreadyApplied = (jobId) => {
   const apps = getAppliedApplications();
-  return apps.some(app => app.jobId === jobId);
+  return apps.some(app => app.jobId === jobId || app.trackId === jobId);
 };
 
 // --------------------------------------------------------------------------
@@ -215,7 +254,10 @@ export const applyToJobStore = (role, candidateUser = null) => {
   const currentApps = getAppliedApplications();
 
   // Check if already applied
-  const existing = currentApps.find(app => app.jobId === role.id);
+  const existing = currentApps.find(app => 
+    (role.id && app.jobId === role.id) || 
+    (role.trackId && app.trackId === role.trackId)
+  );
   if (existing) {
     return { success: true, alreadyApplied: true, application: existing };
   }
@@ -296,8 +338,12 @@ export const applyToJobStore = (role, candidateUser = null) => {
 
   const updatedApps = [newApp, ...currentApps];
   localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedApps));
+  try {
+    localStorage.setItem(BASE_STORAGE_KEY, JSON.stringify(updatedApps));
+  } catch {}
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('fairhire_application_updated', { detail: newApp }));
+    window.dispatchEvent(new CustomEvent('fairhire_candidate_status_updated', { detail: newApp }));
     window.dispatchEvent(new CustomEvent('storage'));
   }
   return { success: true, alreadyApplied: false, application: newApp };

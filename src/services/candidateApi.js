@@ -989,12 +989,12 @@ export const candidateApi = {
         return true;
       });
 
-    // Deduplicate candidates by email/id, retaining the entry with the highest score
+    // Deduplicate candidates by email/id + trackId, retaining the entry with the highest score
     const deduplicated = [];
     const seenMap = new Map();
 
     for (const cand of candidates) {
-      const dedupKey = (cand.email || cand.id || '').trim().toLowerCase();
+      const dedupKey = `${(cand.email || cand.id || '').trim().toLowerCase()}::${(cand.trackId || cand.jobId || '').toLowerCase()}`;
       if (!seenMap.has(dedupKey)) {
         seenMap.set(dedupKey, cand);
         deduplicated.push(cand);
@@ -1033,6 +1033,157 @@ export const candidateApi = {
       data: candidates,
       message: 'Candidates fetched successfully from Supabase',
     };
+  },
+
+  getCandidateApplications: async (candidateId, email) => {
+    if (isMockMode()) {
+      return { success: true, data: [] };
+    }
+
+    try {
+      const [pipelineRes, profilesRes, scoresRes, progressRes] = await Promise.all([
+        supabase.from('candidate_pipeline').select('*').order('updated_at', { ascending: false }),
+        supabase.from('candidate_profiles').select('*'),
+        supabase.from('candidate_scores').select('*'),
+        supabase.from('candidate_progress').select('*'),
+      ]);
+
+      const pipelineRows = pipelineRes.data || [];
+      const profileRows  = profilesRes.data || [];
+      const scoreRows    = scoresRes.data || [];
+      const progressRows = progressRes.data || [];
+
+      // Find all candidate_ids belonging to this user
+      const matchingIds = new Set();
+      if (candidateId) matchingIds.add(String(candidateId));
+
+      const normEmail = (email || '').trim().toLowerCase();
+      if (normEmail) {
+        profileRows.forEach(p => {
+          if (p.email && p.email.trim().toLowerCase() === normEmail) {
+            matchingIds.add(String(p.candidate_id));
+          }
+        });
+      }
+
+      const userPipelineRows = pipelineRows.filter(pl => 
+        matchingIds.has(String(pl.candidate_id)) && pl.status !== 'withdrawn' && pl.status !== 'deleted'
+      );
+
+      const findScore = (cId, trackId) => {
+        return scoreRows.find(s => 
+          s.candidate_id === cId && 
+          (s.track_id === trackId || String(s.track_id).toLowerCase() === String(trackId).toLowerCase())
+        ) || scoreRows.find(s => s.candidate_id === cId) || null;
+      };
+
+      const findProfile = (cId, trackId) => {
+        return profileRows.find(p => 
+          p.candidate_id === cId && 
+          (p.track_id === trackId || String(p.track_id).toLowerCase() === String(trackId).toLowerCase())
+        ) || profileRows.find(p => p.candidate_id === cId) || null;
+      };
+
+      const findProgress = (cId, trackId) => {
+        return progressRows.find(pr => 
+          pr.candidate_id === cId && 
+          (pr.track_id === trackId || String(pr.track_id).toLowerCase() === String(trackId).toLowerCase())
+        ) || progressRows.find(pr => pr.candidate_id === cId) || null;
+      };
+
+      // Map to applications without filtering out score === 0 (unscored applications are valid for candidate portal!)
+      const applications = userPipelineRows.map(pl => {
+        const profile = findProfile(pl.candidate_id, pl.track_id);
+        const score = findScore(pl.candidate_id, pl.track_id);
+        const progress = findProgress(pl.candidate_id, pl.track_id);
+        return candidateAdapter(pl, profile, score, progress);
+      });
+
+      // Deduplicate per track if multiple attempts exist for the same track
+      const deduplicated = [];
+      const seenTracks = new Set();
+      for (const app of applications) {
+        const trackKey = (app.trackId || app.jobId || '').toLowerCase();
+        if (!seenTracks.has(trackKey)) {
+          seenTracks.add(trackKey);
+          deduplicated.push(app);
+        }
+      }
+
+      return {
+        success: true,
+        data: deduplicated,
+        message: 'Candidate applications retrieved successfully from Supabase'
+      };
+    } catch (e) {
+      console.warn('[FairHire] Error fetching candidate applications from Supabase:', e.message);
+      return { success: false, data: [], message: e.message };
+    }
+  },
+
+  applyCandidate: async (applicationData) => {
+    if (isMockMode()) {
+      await new Promise(res => setTimeout(res, 200));
+      const current = getStoredCandidates();
+      const candId = applicationData.candidateId || `CAND-${Date.now().toString().slice(-4)}`;
+      const trackId = applicationData.trackId || applicationData.jobId || 'backend-developer';
+      const newCand = {
+        id: candId,
+        candidateId: candId,
+        name: applicationData.fullName || 'Candidate',
+        email: applicationData.email || '',
+        jobTitle: applicationData.targetRole || 'Software Engineer',
+        trackId: trackId,
+        jobId: applicationData.jobId || trackId,
+        status: 'Applied',
+        appliedDate: new Date().toISOString(),
+        aiScore: 0,
+        experience: applicationData.experience || '3 years',
+        degree: applicationData.degree || "Bachelor's Degree",
+        skills: applicationData.skills || [],
+        timeline: [
+          { status: 'Applied', timestamp: new Date().toISOString(), note: `Applied for ${applicationData.targetRole || trackId}` }
+        ],
+        stages: [
+          { id: 'stage-1', number: '01', name: 'Applied', badge: 'Active Now', status: 'completed' },
+          { id: 'stage-2', number: '02', name: 'AI Screening', badge: 'Pending', status: 'upcoming' },
+          { id: 'stage-3', number: '03', name: 'Review', badge: 'Pending', status: 'upcoming' },
+          { id: 'stage-4', number: '04', name: 'Final Decision', badge: 'Pending', status: 'upcoming' }
+        ]
+      };
+      setStoredCandidates([newCand, ...current]);
+      return { success: true, data: newCand };
+    }
+
+    try {
+      const candidateId = applicationData.candidateId || applicationData.id || `CAND-${Date.now().toString().slice(-6)}`;
+      const trackId = applicationData.trackId || applicationData.jobId || 'backend-developer';
+
+      // 1. Profile upsert
+      await supabase.from('candidate_profiles').upsert({
+        candidate_id: candidateId,
+        name: applicationData.fullName,
+        email: applicationData.email,
+        track_id: trackId,
+        degree: applicationData.degree || "Bachelor's Degree",
+        experience: applicationData.experience || '3 years',
+        skills: applicationData.skills || [],
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'candidate_id' });
+
+      // 2. Pipeline upsert
+      await supabase.from('candidate_pipeline').upsert({
+        candidate_id: candidateId,
+        track_id: trackId,
+        status: 'applied',
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'candidate_id,track_id' });
+
+      return { success: true, candidateId, trackId };
+    } catch (e) {
+      console.warn('[FairHire] Error applying candidate in Supabase:', e.message);
+      return { success: false, message: e.message };
+    }
   },
 
   confirmInterviewSlot: async (payload) => {

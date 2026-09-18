@@ -119,84 +119,134 @@ const ApplicationStatus = () => {
   }, [candidateHiring?.currentRoundIndex, assessmentDoneForRoundIdx]);
 
   // Load applications:
-  //   mock mode  → applicationStore (localStorage)
-  //   live mode  → candidateApi.getCandidates() → Supabase (authoritative)
+  // Merges local applicationStore applications (immediate/offline) with Supabase live applications
   useEffect(() => {
     let cancelled = false;
 
     const loadApplications = async () => {
+      // 1. Always load locally stored applications
+      const localApps = getAppliedApplications();
+
       if (isMockMode()) {
-        const apps = getAppliedApplications();
         if (!cancelled) {
-          setApplications(apps);
-          if (apps.length > 0) {
-            setSelectedAppId(apps[0].id);
+          setApplications(localApps);
+          if (localApps.length > 0) {
+            setSelectedAppId(prev => (prev && localApps.some(a => a.id === prev)) ? prev : localApps[0].id);
             setActiveStageTab(prev => prev || candidateHiring?.stage || 'Review');
           }
         }
         return;
       }
 
-      // Live mode: no candidate ID means no authenticated session — show empty state.
-      if (!activeCandidateId) {
-        if (!cancelled) {
-          setApplications([]);
-          setFetchError(null);
-        }
-        return;
-      }
-
+      // Live mode: fetch from Supabase and merge with local applications
       setLoadingApps(true);
       setFetchError(null);
       try {
-        const res = await candidateApi.getCandidates();
+        let remoteApps = [];
+        // First try dedicated candidate applications endpoint
+        const appRes = await candidateApi.getCandidateApplications(activeCandidateId, user?.email);
+        if (appRes.success && Array.isArray(appRes.data) && appRes.data.length > 0) {
+          remoteApps = appRes.data;
+        } else {
+          // Fallback to getCandidates
+          const res = await candidateApi.getCandidates();
+          if (res.success && Array.isArray(res.data) && res.data.length > 0) {
+            const mine = res.data.filter(
+              c =>
+                c.id === activeCandidateId ||
+                c.candidateId === activeCandidateId ||
+                (user?.email && c.email && c.email.toLowerCase() === user.email.toLowerCase())
+            );
+            remoteApps = mine.length > 0 ? mine : res.data;
+          }
+        }
+
         if (cancelled) return;
 
-        if (res.success && Array.isArray(res.data) && res.data.length > 0) {
-          // Narrow to records belonging to this candidate; fall back to full list if none match.
-          const mine = res.data.filter(
-            c =>
-              c.id === activeCandidateId ||
-              c.candidateId === activeCandidateId ||
-              (user?.email && c.email && c.email.toLowerCase() === user.email.toLowerCase())
-          );
-          const displayList = mine.length > 0 ? mine : res.data;
+        // Adapt remote records to standard application shape
+        const adaptedRemote = remoteApps.map(c => ({
+          id: c.id || `APP-${c.trackId || c.jobId || 'ROLE'}-${c.candidateId || ''}`,
+          candidateId: c.candidateId || c.id,
+          trackId: c.trackId || c.jobId || '',
+          jobId: c.jobId || c.trackId || '',
+          jobTitle: c.jobTitle || 'Software Engineer',
+          company: c.company || 'FairHire Enterprise',
+          companyInitial: c.companyInitial || 'FH',
+          companyBg: c.companyBg || 'bg-teal-600',
+          location: c.location || 'Remote / Hybrid',
+          salary: c.salary || 'Competitive',
+          appliedDate: c.appliedDate || new Date().toISOString(),
+          aiScore: c.aiScore || 0,
+          status: c.status || 'Applied',
+          hiringStage: c.hiringStage || c.status || 'Applied',
+          stages: c.stages || [],
+          courses: c.courses || [],
+          resumeSummary: c.resumeSummary || '',
+          rationale: c.rationale || '',
+          progressPercent: c.progressPercent || (Number(c.aiScore) > 0 ? 45 : 20)
+        }));
 
-          // Adapt candidateApi records to the applicationStore shape the UI expects.
-          const adapted = displayList.map(c => ({
-            id: c.id,
-            candidateId: c.id,
-            trackId: c.trackId || c.jobId || '',
-            jobId: c.trackId || c.jobId || '',
-            jobTitle: c.jobTitle || 'Software Engineer',
-            company: 'FairHire Enterprise',
-            companyInitial: 'FH',
-            companyBg: 'bg-teal-600',
-            location: c.location || 'Remote / Hybrid',
-            salary: 'Competitive',
-            appliedDate: c.appliedDate,
-            aiScore: c.aiScore || 0,
-            status: c.status || 'Applied',
-            hiringStage: c.hiringStage || 'Applied',
-            stages: c.stages || [],
-            courses: c.courses || [],
-            resumeSummary: c.resumeSummary || '',
-            rationale: c.rationale || '',
-          }));
+        // Merge local and remote applications by trackId || jobId || id
+        const mergedMap = new Map();
 
-          setApplications(adapted);
-          if (adapted.length > 0) {
-            setSelectedAppId(adapted[0].id);
-            setActiveStageTab(prev => prev || candidateHiring?.stage || 'Review');
+        // 1. Add all local applications (providing rich styling, course, and company metadata)
+        for (const la of localApps) {
+          const key = String(la.trackId || la.jobId || la.id || '').trim().toLowerCase();
+          if (key) mergedMap.set(key, { ...la });
+        }
+
+        // 2. Overlay live remote data (authoritative scores, pipeline status)
+        for (const ra of adaptedRemote) {
+          const key = String(ra.trackId || ra.jobId || ra.id || '').trim().toLowerCase();
+          if (mergedMap.has(key)) {
+            const existing = mergedMap.get(key);
+            mergedMap.set(key, {
+              ...existing,
+              ...ra,
+              company: existing.company || ra.company,
+              jobTitle: existing.jobTitle || ra.jobTitle,
+              stages: (existing.stages && existing.stages.length > 0) ? existing.stages : ra.stages,
+              courses: (existing.courses && existing.courses.length > 0) ? existing.courses : ra.courses,
+              aiScore: (Number(ra.aiScore) > 0 ? ra.aiScore : existing.aiScore) || 0,
+              progressPercent: ra.progressPercent || existing.progressPercent || (Number(ra.aiScore) > 0 ? 45 : 20)
+            });
+          } else {
+            mergedMap.set(key, ra);
           }
-        } else {
-          setApplications([]);
+        }
+
+        const mergedList = Array.from(mergedMap.values());
+        const candidateApplications = mergedList.length > 0 ? mergedList : localApps;
+
+        // Ensure 4 standard pipeline stages are present on every application
+        const finalized = candidateApplications.map(app => {
+          if (!app.stages || app.stages.length === 0) {
+            const hasScore = Number(app.aiScore) > 0;
+            return {
+              ...app,
+              stages: [
+                { id: 'stage-1', number: '01', name: 'Applied', badge: 'Completed', status: 'completed', timestamp: 'Just now', description: 'Application intake & decoupled profile.' },
+                { id: 'stage-2', number: '02', name: 'AI Screening', badge: hasScore ? `Completed (${app.aiScore}/10)` : 'Active Now', status: hasScore ? 'completed' : 'current', timestamp: hasScore ? 'Verified' : 'Pending Assessment', description: 'Automated semantic competency scan.' },
+                { id: 'stage-3', number: '03', name: 'Review', badge: 'Pending', status: 'upcoming', timestamp: 'Pending', description: '3 Company Rounds by HR.' },
+                { id: 'stage-4', number: '04', name: 'Final Decision', badge: 'Pending', status: 'upcoming', timestamp: 'Pending', description: 'Offer / Concluded.' }
+              ]
+            };
+          }
+          return app;
+        });
+
+        setApplications(finalized);
+        if (finalized.length > 0) {
+          setSelectedAppId(prev => (prev && finalized.some(a => a.id === prev)) ? prev : finalized[0].id);
+          setActiveStageTab(prev => prev || candidateHiring?.stage || 'Review');
         }
       } catch (err) {
         if (!cancelled) {
-          console.warn('[FairHire] ApplicationStatus: failed to load from candidateApi:', err.message);
-          setFetchError('Unable to load application data. Please try again.');
-          setApplications([]);
+          console.warn('[FairHire] ApplicationStatus: fallback to local applications:', err.message);
+          setApplications(localApps);
+          if (localApps.length > 0) {
+            setSelectedAppId(prev => (prev && localApps.some(a => a.id === prev)) ? prev : localApps[0].id);
+          }
         }
       } finally {
         if (!cancelled) setLoadingApps(false);
@@ -204,7 +254,20 @@ const ApplicationStatus = () => {
     };
 
     loadApplications();
-    return () => { cancelled = true; };
+
+    // Event listeners to refresh whenever new jobs are applied or updated in real-time
+    const handleUpdate = () => {
+      loadApplications();
+    };
+
+    window.addEventListener('fairhire_application_updated', handleUpdate);
+    window.addEventListener('fairhire_candidate_status_updated', handleUpdate);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('fairhire_application_updated', handleUpdate);
+      window.removeEventListener('fairhire_candidate_status_updated', handleUpdate);
+    };
   }, [activeCandidateId, candidateHiring?.stage, user?.email]);
 
   const currentApp = applications.find(a => a.id === selectedAppId) || applications[0];
@@ -396,19 +459,32 @@ const ApplicationStatus = () => {
     ? '🎉 Job Offer Extended'
     : isRejected
     ? 'Application Concluded'
-    : candidateHiring?.displayStatus || currentApp.status || 'Applied';
+    : (candidateHiring?.stage && currentApp?.trackId === candidateHiring?.trackId && candidateHiring?.displayStatus)
+    || currentApp?.status
+    || candidateHiring?.displayStatus
+    || 'Applied';
 
-  const currentStage = candidateHiring?.stage || 'Applied';
+  const currentStage = (candidateHiring?.stage && currentApp?.trackId === candidateHiring?.trackId)
+    ? candidateHiring.stage
+    : currentApp?.hiringStage || (Number(currentApp?.aiScore) > 0 ? 'Review' : 'Applied');
 
   // 4 Process Stages matching HR portal
   const STAGES = [
     { id: 'Applied', number: 1, title: 'Applied', desc: 'Initial application intake & decoupled profile' },
-    { id: 'AI Screening', number: 2, title: 'AI Screening', desc: 'Automated scan (8.8/10 score)' },
-    { id: 'Review', number: 3, title: 'Review', desc: `${rounds.length} Company Rounds by HR` },
+    { id: 'AI Screening', number: 2, title: 'AI Screening', desc: currentApp?.aiScore ? `Automated scan (${currentApp.aiScore}/10 score)` : 'Automated semantic fit scan' },
+    { id: 'Review', number: 3, title: 'Review', desc: `${rounds.length || 3} Company Rounds by HR` },
     { id: 'Final Decision', number: 4, title: 'Final Decision', desc: 'Offer / Concluded' }
   ];
 
   const getStageStepState = (stageId) => {
+    // If currentApp has its own stages array with status:
+    const matchedStage = (currentApp?.stages || []).find(s => 
+      (s.name && s.name.toLowerCase().includes(stageId.toLowerCase())) ||
+      (s.title && s.title.toLowerCase().includes(stageId.toLowerCase()))
+    );
+    if (matchedStage?.status === 'completed') return 'completed';
+    if (matchedStage?.status === 'current') return 'active';
+
     const stageOrder = ['Applied', 'AI Screening', 'Review', 'Final Decision', 'Completed'];
     const currentIdx = stageOrder.indexOf(currentStage);
     const targetIdx = stageOrder.indexOf(stageId);
@@ -419,19 +495,29 @@ const ApplicationStatus = () => {
   };
 
   // Current stage helper
-  const stages = currentApp.stages || [];
+  const stages = currentApp?.stages || [];
   const completedStagesCount = stages.filter(s => s.status === 'completed').length;
   
-  let progressPercent = 25;
-  if (candidateHiring?.stage === 'Applied') progressPercent = 20;
-  else if (candidateHiring?.stage === 'AI Screening') progressPercent = 40;
-  else if (candidateHiring?.stage === 'Review') {
-    const completedRounds = rounds.filter(r => r.status === 'completed').length;
-    progressPercent = 40 + Math.round((completedRounds / Math.max(rounds.length, 1)) * 40);
-  } else if (candidateHiring?.stage === 'Final Decision') {
-    progressPercent = 90;
-  } else if (candidateHiring?.stage === 'Completed') {
-    progressPercent = 100;
+  let progressPercent = currentApp?.progressPercent || 25;
+  if (candidateHiring?.stage && (currentApp?.trackId === candidateHiring?.trackId || !currentApp?.progressPercent)) {
+    if (candidateHiring.stage === 'Applied') progressPercent = 20;
+    else if (candidateHiring.stage === 'AI Screening') progressPercent = 40;
+    else if (candidateHiring.stage === 'Review') {
+      const completedRounds = rounds.filter(r => r.status === 'completed').length;
+      progressPercent = 40 + Math.round((completedRounds / Math.max(rounds.length, 1)) * 40);
+    } else if (candidateHiring.stage === 'Final Decision') {
+      progressPercent = 90;
+    } else if (candidateHiring.stage === 'Completed') {
+      progressPercent = 100;
+    }
+  } else if (!currentApp?.progressPercent) {
+    if (currentApp?.currentStageIndex != null) {
+      progressPercent = Math.round(((currentApp.currentStageIndex + 1) / (currentApp.stages?.length || 4)) * 100);
+    } else if (Number(currentApp?.aiScore) > 0) {
+      progressPercent = 45;
+    } else {
+      progressPercent = 20;
+    }
   }
 
   return (
