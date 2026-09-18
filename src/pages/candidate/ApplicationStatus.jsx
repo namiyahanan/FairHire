@@ -9,7 +9,8 @@ import { candidateApi } from '../../services/candidateApi';
 import { isMockMode } from '../../services/api';
 import {
   getAppliedApplications,
-  isJobAlreadyApplied
+  isJobAlreadyApplied,
+  isCurrentUserDemo
 } from '../../services/applicationStore';
 import {
   CheckCircle2,
@@ -126,13 +127,18 @@ const ApplicationStatus = () => {
     const loadApplications = async () => {
       // 1. Always load locally stored applications
       const localApps = getAppliedApplications();
+      const isDemo = isCurrentUserDemo();
+      const DEMO_JOB_IDS = new Set(['APP-BACKEND-DEV-001', 'APP-FULLSTACK-ENG-002', 'APP-DATA-INFRA-003']);
 
       if (isMockMode()) {
+        const filteredLocal = localApps.filter(app => isDemo || !DEMO_JOB_IDS.has(app.id));
         if (!cancelled) {
-          setApplications(localApps);
-          if (localApps.length > 0) {
-            setSelectedAppId(prev => (prev && localApps.some(a => a.id === prev)) ? prev : localApps[0].id);
+          setApplications(filteredLocal);
+          if (filteredLocal.length > 0) {
+            setSelectedAppId(prev => (prev && filteredLocal.some(a => a.id === prev)) ? prev : filteredLocal[0].id);
             setActiveStageTab(prev => prev || candidateHiring?.stage || 'Review');
+          } else {
+            setSelectedAppId(null);
           }
         }
         return;
@@ -157,7 +163,7 @@ const ApplicationStatus = () => {
                 c.candidateId === activeCandidateId ||
                 (user?.email && c.email && c.email.toLowerCase() === user.email.toLowerCase())
             );
-            remoteApps = mine.length > 0 ? mine : res.data;
+            remoteApps = mine;
           }
         }
 
@@ -218,8 +224,14 @@ const ApplicationStatus = () => {
         const mergedList = Array.from(mergedMap.values());
         const candidateApplications = mergedList.length > 0 ? mergedList : localApps;
 
+        // Strictly filter to only applications belonging to this user (never leak demo jobs into real users)
+        const strictlyCandidateApps = candidateApplications.filter(app => {
+          if (!isDemo && DEMO_JOB_IDS.has(app.id)) return false;
+          return true;
+        });
+
         // Ensure 4 standard pipeline stages are present on every application
-        const finalized = candidateApplications.map(app => {
+        const finalized = strictlyCandidateApps.map(app => {
           if (!app.stages || app.stages.length === 0) {
             const hasScore = Number(app.aiScore) > 0;
             return {
@@ -239,13 +251,18 @@ const ApplicationStatus = () => {
         if (finalized.length > 0) {
           setSelectedAppId(prev => (prev && finalized.some(a => a.id === prev)) ? prev : finalized[0].id);
           setActiveStageTab(prev => prev || candidateHiring?.stage || 'Review');
+        } else {
+          setSelectedAppId(null);
         }
       } catch (err) {
         if (!cancelled) {
           console.warn('[FairHire] ApplicationStatus: fallback to local applications:', err.message);
-          setApplications(localApps);
-          if (localApps.length > 0) {
-            setSelectedAppId(prev => (prev && localApps.some(a => a.id === prev)) ? prev : localApps[0].id);
+          const fallbackFiltered = localApps.filter(app => isDemo || !DEMO_JOB_IDS.has(app.id));
+          setApplications(fallbackFiltered);
+          if (fallbackFiltered.length > 0) {
+            setSelectedAppId(prev => (prev && fallbackFiltered.some(a => a.id === prev)) ? prev : fallbackFiltered[0].id);
+          } else {
+            setSelectedAppId(null);
           }
         }
       } finally {

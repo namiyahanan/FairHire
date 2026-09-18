@@ -132,7 +132,7 @@ export const DEFAULT_APPLICATIONS = [
 // --------------------------------------------------------------------------
 // Returns true if the current logged-in user is the built-in demo account
 // --------------------------------------------------------------------------
-const isCurrentUserDemo = () => {
+export const isCurrentUserDemo = () => {
   try {
     const raw =
       sessionStorage.getItem('fairhire_user') ||
@@ -194,48 +194,26 @@ export const getAppliedApplications = () => {
       return parsed.map(normalizeApp);
     }
 
-    // Collect applications across user-scoped storage, base storage, and related candidate keys
-    const collected = [];
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) collected.push(...parsed);
-      } catch {}
-    }
-
-    const baseRaw = localStorage.getItem(BASE_STORAGE_KEY);
-    if (baseRaw) {
-      try {
-        const parsedBase = JSON.parse(baseRaw);
-        if (Array.isArray(parsedBase)) collected.push(...parsedBase);
-      } catch {}
-    }
-
-    // Scan any other candidate application keys created across logins
+    // For ALL real users: strictly read only THIS user's applications
+    if (!raw) return [];
+    let parsed = [];
     try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith(BASE_STORAGE_KEY) && k !== STORAGE_KEY && k !== BASE_STORAGE_KEY && !k.startsWith(BASE_VER_KEY)) {
-          try {
-            const extra = JSON.parse(localStorage.getItem(k));
-            if (Array.isArray(extra)) collected.push(...extra);
-          } catch {}
-        }
-      }
-    } catch {}
+      parsed = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+    if (!Array.isArray(parsed)) return [];
 
-    // Deduplicate by jobId/trackId
-    const deduplicated = [];
-    const seen = new Set();
-    for (const app of collected) {
-      const key = String(app.jobId || app.trackId || app.id || '').trim().toLowerCase();
-      if (key && !seen.has(key)) {
-        seen.add(key);
-        deduplicated.push(normalizeApp(app));
-      }
+    // Filter out built-in demo jobs if they were ever saved into this real user's storage
+    const DEMO_JOB_IDS = new Set(['APP-BACKEND-DEV-001', 'APP-FULLSTACK-ENG-002', 'APP-DATA-INFRA-003']);
+    const userOnlyApps = parsed.filter(app => !DEMO_JOB_IDS.has(app.id));
+
+    // If demo apps were cleaned out, persist the cleaned list back to localStorage
+    if (userOnlyApps.length !== parsed.length) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(userOnlyApps));
     }
 
-    return deduplicated;
+    return userOnlyApps.map(normalizeApp);
   } catch (e) {
     console.error('[FairHire] Error reading applications from localStorage', e);
     return [];
@@ -338,9 +316,6 @@ export const applyToJobStore = (role, candidateUser = null) => {
 
   const updatedApps = [newApp, ...currentApps];
   localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedApps));
-  try {
-    localStorage.setItem(BASE_STORAGE_KEY, JSON.stringify(updatedApps));
-  } catch {}
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('fairhire_application_updated', { detail: newApp }));
     window.dispatchEvent(new CustomEvent('fairhire_candidate_status_updated', { detail: newApp }));
